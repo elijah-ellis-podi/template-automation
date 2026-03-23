@@ -1,4 +1,4 @@
-import { generateMockThermogram, mockPatientMetadata, mockPatients, mockScans, mockTemplateBuildResponse } from '@/mocks/brannock';
+import { mockPatientMetadata, mockPatients, mockScans, mockTemplateBuildResponse, mockThermogram } from '@/mocks/brannock';
 import type { BrannockPatient, BrannockScan, PatientMetadata, TemplateBuildRequest, TemplateBuildResponse, TemplateSavePayload } from '@/schemas/brannock';
 import { podiAxios } from '@/utils/api';
 import { ENV } from '@/utils/constants';
@@ -51,7 +51,7 @@ export const getBrannockScans = async (scansUrl: string): Promise<Array<Brannock
 // Legacy: GET {scan.mat_thermogram_url}?decimals=2
 // Returns { thermogram: number[][] } — a 2D array of temperature values.
 export const getMatThermogram = async (matThermogramUrl: string): Promise<Array<Array<number>>> => {
-  if (ENV.ENV === 'LOCAL') return Promise.resolve(generateMockThermogram());
+  if (ENV.ENV === 'LOCAL') return Promise.resolve(mockThermogram);
 
   const res = await podiAxios<{ thermogram: Array<Array<number>> }>(`${matThermogramUrl}?decimals=2`, {
     headers: getAuthHeader()

@@ -9,18 +9,24 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as ManualBuildRouteImport } from './routes/manual-build'
 import { Route as LoginRouteImport } from './routes/login'
-import { Route as BrannockRouteImport } from './routes/brannock'
+import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as IndexRouteImport } from './routes/index'
 
+const ManualBuildRoute = ManualBuildRouteImport.update({
+  id: '/manual-build',
+  path: '/manual-build',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
-const BrannockRoute = BrannockRouteImport.update({
-  id: '/brannock',
-  path: '/brannock',
+const DashboardRoute = DashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -31,36 +37,47 @@ const IndexRoute = IndexRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/brannock': typeof BrannockRoute
+  '/dashboard': typeof DashboardRoute
   '/login': typeof LoginRoute
+  '/manual-build': typeof ManualBuildRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/brannock': typeof BrannockRoute
+  '/dashboard': typeof DashboardRoute
   '/login': typeof LoginRoute
+  '/manual-build': typeof ManualBuildRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/brannock': typeof BrannockRoute
+  '/dashboard': typeof DashboardRoute
   '/login': typeof LoginRoute
+  '/manual-build': typeof ManualBuildRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/brannock' | '/login'
+  fullPaths: '/' | '/dashboard' | '/login' | '/manual-build'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/brannock' | '/login'
-  id: '__root__' | '/' | '/brannock' | '/login'
+  to: '/' | '/dashboard' | '/login' | '/manual-build'
+  id: '__root__' | '/' | '/dashboard' | '/login' | '/manual-build'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  BrannockRoute: typeof BrannockRoute
+  DashboardRoute: typeof DashboardRoute
   LoginRoute: typeof LoginRoute
+  ManualBuildRoute: typeof ManualBuildRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/manual-build': {
+      id: '/manual-build'
+      path: '/manual-build'
+      fullPath: '/manual-build'
+      preLoaderRoute: typeof ManualBuildRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/login': {
       id: '/login'
       path: '/login'
@@ -68,11 +85,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/brannock': {
-      id: '/brannock'
-      path: '/brannock'
-      fullPath: '/brannock'
-      preLoaderRoute: typeof BrannockRouteImport
+    '/dashboard': {
+      id: '/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof DashboardRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -87,8 +104,9 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  BrannockRoute: BrannockRoute,
+  DashboardRoute: DashboardRoute,
   LoginRoute: LoginRoute,
+  ManualBuildRoute: ManualBuildRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

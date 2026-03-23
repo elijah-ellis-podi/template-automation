@@ -21,7 +21,7 @@ const BrannockSearchSchema = z.object({
   patientId: z.string().optional()
 });
 
-export const Route = createFileRoute('/brannock')({
+export const Route = createFileRoute('/manual-build')({
   validateSearch: BrannockSearchSchema.parse,
   beforeLoad: async ({ location }) => {
     const authToken = localStorage.getItem(STORAGE_KEYS.PODI_TOKEN);

@@ -33,31 +33,32 @@ This was previously a Python/Qt desktop app (`brannock.py`) using numpy, scipy, 
 ```
 src/
 ├── routes/                        # TanStack Router file-based pages
-│   ├── __root.tsx                 # Root layout: nav bar, outlet, toaster
-│   ├── index.tsx                  # / → redirects to /brannock or /login
+│   ├── __root.tsx                 # Root layout: nav bar with active links, outlet, toaster
+│   ├── index.tsx                  # / → redirects to /dashboard or /login
 │   ├── login.tsx                  # /login
-│   └── brannock.tsx               # /brannock — main template workflow (all state lives here)
+│   ├── dashboard.tsx              # /dashboard — overview stub (patients without templates, build activity)
+│   └── manual-build.tsx           # /manual-build — full template workflow (all build state lives here)
 ├── components/
 │   ├── brannock/                  # Domain components for the template workflow
-│   │   ├── PatientSelector.tsx    # Patient search, filtering, selection
+│   │   ├── PatientSelector.tsx    # Patient search, filtering, selection (with fuzzy match + metadata filters)
 │   │   ├── ScanSelector.tsx       # Scan list with checkboxes + preview selection
-│   │   ├── BuildControls.tsx      # Auto/Manual build buttons + loading state
-│   │   ├── TemplateCanvas.tsx     # Heatmap canvas with click-to-place keypoints
+│   │   ├── BuildControls.tsx      # Auto/Manual build buttons + loading spinner
+│   │   ├── TemplateCanvas.tsx     # Heatmap canvas with click-to-place keypoints (two-layer: heatmap + overlay)
 │   │   ├── FootSideControls.tsx   # Single-foot: change side + rotate 180°
-│   │   ├── ThresholdSliders.tsx   # Manual mode: left/right threshold sliders
-│   │   ├── KeypointSelector.tsx   # 6-keypoint list with placement indicators
-│   │   └── SaveTemplateButton.tsx # Validation, coordinate transforms, save
+│   │   ├── ThresholdSliders.tsx   # Manual mode: left/right threshold sliders (1-99%)
+│   │   ├── KeypointSelector.tsx   # 6-keypoint list with placement indicators + keyboard nav
+│   │   └── SaveTemplateButton.tsx # Validation, coordinate transforms (flipY + flipLR), save
 │   └── forms/
 │       └── LoginForm.tsx          # Email/password login form
 ├── schemas/
 │   └── brannock.ts                # Zod schemas → TypeScript types (not runtime validation)
 ├── services/
-│   ├── auth.ts                    # Login, auth header, logout redirect
+│   ├── auth.ts                    # Login (mock in LOCAL), auth header, logout redirect
 │   └── brannock.ts                # API calls: patients, scans, thermograms, build, save
 ├── hooks/
 │   └── useAuth.tsx                # Auth context provider + hook
 ├── mocks/
-│   └── brannock.ts                # Mock data for LOCAL development
+│   └── brannock.ts                # Real sample data for LOCAL development (downsampled thermogram, real scan IDs)
 ├── utils/
 │   ├── api.ts                     # podiAxios HTTP wrapper (403 → auto-logout)
 │   ├── constants.ts               # ENV detection, storage keys, API base URLs
@@ -69,11 +70,24 @@ src/
 
 ---
 
-## End-to-end workflow
+## Routes
+
+| Path | File | Description |
+|---|---|---|
+| `/` | `index.tsx` | Redirects to `/dashboard` (authenticated) or `/login` |
+| `/login` | `login.tsx` | Login form. Redirects to `/dashboard` if already authenticated. |
+| `/dashboard` | `dashboard.tsx` | **Template Automation Dashboard** — stub with placeholder metric cards. Future home for patient queue, build activity, and status overview. |
+| `/manual-build` | `manual-build.tsx` | **Manual Template Build** — the full template workflow: patient selection, scan selection, auto/manual build, template review, keypoint placement, save. All build state lives in this route component. |
+
+The nav bar in `__root.tsx` renders links to Dashboard and Manual Template Build with active-state highlighting. Links only appear when authenticated.
+
+---
+
+## End-to-end workflow (Manual Template Build)
 
 ### 1. Authentication
 
-- User visits `/` → redirected to `/login` if no session token, or `/brannock` if authenticated.
+- User visits `/` → redirected to `/login` if no session token, or `/dashboard` if authenticated.
 - Login POSTs to `/api/v1/sessions/` with `{ user_id, password }`. The returned `session_id` is stored in `localStorage['__podi']` and used as a Bearer token for all subsequent API calls.
 - On 403 from any API call, the token is cleared and the user is redirected to `/login`.
 - **LOCAL mode**: any email/password logs in with a mock token. All service functions return mock data — no backend needed.
@@ -109,21 +123,23 @@ Two modes, both delegated to the server:
 Request: `POST /api/v1/templates/build` with `{ patient_id, scan_ids, mode: 'auto' | 'manual' }`.
 Response: `{ left_foot, right_foot, left_threshold, right_threshold, earliest_scan_id, date_created, foot_side }`.
 
-Build takes 5–30 seconds. The UI shows a spinner during the mutation.
+Build takes 5-30 seconds. The UI shows a spinner during the mutation.
 
 ### 5. Template review (`TemplateCanvas`)
 
 - The build response populates one or two `<canvas>` elements rendered as heatmaps (copper palette, threshold-based alpha masking).
 - Canvases are laid out in anatomical convention: right foot on the left, left foot on the right.
-- **Single-foot results** show only one canvas. `FootSideControls` let the operator change the assigned foot side or rotate 180°.
-- **Manual mode** shows `ThresholdSliders` (1–99%, default 40%) that re-render the heatmap in real time.
+- **Single-foot results** show only one canvas. `FootSideControls` let the operator change the assigned foot side or rotate 180.
+- **Manual mode** shows `ThresholdSliders` (1-99%, default 40%) that re-render the heatmap in real time.
 
 ### 6. Keypoint placement (`KeypointSelector` + `TemplateCanvas` click)
 
 - The operator selects one of 6 anatomical keypoints from a list: Hallux, 1st/3rd/5th Metatarsal Head, Arch, Heel.
-- Clicking on a template canvas places a marker at normalized (0–1) coordinates for that keypoint on that foot side.
-- Green dots in the keypoint list indicate placed keypoints. The header shows progress (e.g., "4/6").
+- Clicking on a template canvas places a marker at normalized (0-1) coordinates for that keypoint on that foot side.
+- After placement, the active keypoint auto-advances to the next unplaced one.
+- Green dots in the keypoint list indicate placed keypoints. The header shows progress (e.g., "4/6" or "All set").
 - For bilateral templates, each keypoint needs both left and right coordinates. For single-foot, only the active side.
+- Keyboard accessible: Enter/Space to select, Arrow Up/Down to navigate.
 
 ### 7. Save (`SaveTemplateButton` → server)
 
@@ -157,8 +173,8 @@ The save payload matches the legacy cloud storage event shape:
       "Arch": { ... },
       "Heel": { ... }
     },
-    "earliest_scan_id": "20250301...",
-    "date_created": "2025-03-01T..."
+    "earliest_scan_id": "20260114...",
+    "date_created": "2026-01-14T..."
   }
 }
 ```
@@ -185,7 +201,7 @@ On success, all build state is cleared and the UI resets for the next patient.
 | Action | Method | Endpoint | Notes |
 |---|---|---|---|
 | Patient metadata | GET | `/api/v1/templates/metadata` | Returns 3 scan-count maps for patient filtering |
-| Build template | POST | `/api/v1/templates/build` | Request: `{ patient_id, scan_ids, mode }`. May take 5–30s. |
+| Build template | POST | `/api/v1/templates/build` | Request: `{ patient_id, scan_ids, mode }`. May take 5-30s. |
 | Save template | POST | `/api/v1/templates` | Payload: `{ which, what }` event. Server handles cloud storage upload + reprocessing trigger. |
 
 ---
@@ -203,7 +219,7 @@ On success, all build state is cleared and the UI resets for the next patient.
 
 ## State management
 
-All state lives in the `BrannockPage` component (`src/routes/brannock.tsx`). There is no global state library.
+All template-build state lives in the `BrannockPage` component (`src/routes/manual-build.tsx`). There is no global state library.
 
 | State | Managed by | Scope |
 |---|---|---|
@@ -223,12 +239,15 @@ TanStack Query keys:
 ## Patterns and conventions
 
 - **Path alias**: `@/` maps to `src/`. All imports use this.
-- **Service ↔ mock boundary**: every service function checks `ENV.ENV === 'LOCAL'` at the top and returns mock data if true. This is the only conditional — no feature flags or test doubles elsewhere.
+- **Service / mock boundary**: every service function checks `ENV.ENV === 'LOCAL'` at the top and returns mock data if true. This is the only conditional — no feature flags or test doubles elsewhere.
+- **Mock data**: `src/mocks/brannock.ts` contains real sample data (downsampled thermogram from actual device, real scan IDs and timestamps, real patient structure). Not randomly generated.
 - **Schemas for types, not validation**: Zod schemas in `src/schemas/` define data shapes and produce TypeScript types via `z.infer`. They are NOT used for runtime API response validation.
 - **Const tuples for enums**: `export const X = [...] as const; export type X = (typeof X)[number];`
 - **Formatting**: Prettier with single quotes, semicolons, 160 char width, no trailing commas, Tailwind class sorting.
 - **`routeTree.gen.ts`**: auto-generated by the TanStack Router Vite plugin. Never edit manually.
 - **Component style**: functional components with `FC<Props>`, Tailwind for all styling, `cn()` for conditional class merging.
+- **Accessibility**: interactive divs include `role`, `tabIndex`, and `onKeyDown` for Enter/Space/Arrow navigation. Error and loading states use skeleton pulses and inline error messages.
+- **Responsive**: two-column layout stacks vertically below `lg` breakpoint.
 
 ---
 

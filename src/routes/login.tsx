@@ -5,7 +5,7 @@ import { LoginForm } from '../components/forms/LoginForm';
 export const Route = createFileRoute('/login')({
   beforeLoad: async () => {
     const podiToken = localStorage.getItem(STORAGE_KEYS.PODI_TOKEN);
-    if (podiToken) throw redirect({ to: '/brannock' });
+    if (podiToken) throw redirect({ to: '/dashboard' });
   },
   component: LoginPage
 });

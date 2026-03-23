@@ -1,4 +1,4 @@
-import { createRootRoute, Link, Outlet } from '@tanstack/react-router';
+import { createRootRoute, Link, Outlet, useRouterState } from '@tanstack/react-router';
 import { lazy } from 'react';
 import { Toaster } from 'react-hot-toast';
 import { useAuth } from '../hooks/useAuth';
@@ -12,20 +12,46 @@ const TanStackRouterDevtools =
       )
     : () => null;
 
+const NAV_ITEMS = [
+  { label: 'Dashboard', to: '/dashboard' },
+  { label: 'Manual Template Build', to: '/manual-build' }
+] as const;
+
 const SiteNavigation = () => {
   const { logout, user } = useAuth();
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
 
   return (
-    <nav className="flex flex-row items-center justify-between bg-gray-900 p-4">
-      <Link to="/brannock" className="text-sm font-semibold text-white">
-        Brannock — Template Automation
-      </Link>
+    <nav className="flex flex-row items-center justify-between bg-gray-900 px-4 py-3">
+      <div className="flex items-center gap-8">
+        <Link to="/dashboard" className="text-sm font-semibold text-white">
+          Template Automation
+        </Link>
+        {user && (
+          <div className="flex items-center gap-1">
+            {NAV_ITEMS.map((item) => {
+              const isActive = pathname === item.to || pathname.startsWith(item.to + '/');
+              return (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  className={
+                    isActive
+                      ? 'rounded-md bg-gray-700 px-3 py-1.5 text-sm font-medium text-white'
+                      : 'rounded-md px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-800 hover:text-white'
+                  }
+                >
+                  {item.label}
+                </Link>
+              );
+            })}
+          </div>
+        )}
+      </div>
       {user && (
-        <div className="flex flex-row items-center gap-8">
-          <button onClick={logout} className="cursor-pointer text-sm text-white hover:text-gray-300">
-            Logout
-          </button>
-        </div>
+        <button onClick={logout} className="cursor-pointer text-sm text-gray-300 hover:text-white">
+          Logout
+        </button>
       )}
     </nav>
   );

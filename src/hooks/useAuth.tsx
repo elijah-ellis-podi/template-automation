@@ -41,7 +41,7 @@ export const AuthProvider = (props: { children: ReactNode }): JSX.Element => {
       const redirect = urlParams.get('redirect');
 
       toast.success('Successfully logged in');
-      router.navigate({ to: redirect || '/brannock' });
+      router.navigate({ to: redirect || '/dashboard' });
     } catch (error) {
       if (axios.isAxiosError(error) && error.response?.status === 401) {
         toast.error('Incorrect password, try again.');
