@@ -5,15 +5,14 @@ import { ENV } from '@/utils/constants';
 import { getAuthHeader } from './auth';
 
 // ── Patient list ──────────────────────────────────────────────
-// Legacy flow: GET /patients/ returns an S3 pre-signed URL, then
-// fetch that URL to get the actual patient JSON array.
+// GET /patients returns { patients: "<s3-presigned-url>" }.
+// Then fetch that URL for the actual patient JSON array.
 export const getBrannockPatients = async (): Promise<Array<BrannockPatient>> => {
   if (ENV.ENV === 'LOCAL') return Promise.resolve(mockPatients);
 
-  const urlResponse = await podiAxios<{ patients: string }>(`${ENV.API_BASE_URL}/patients/`, {
+  const urlResponse = await podiAxios<{ patients: string }>(`${ENV.API_BASE_URL}/patients`, {
     headers: getAuthHeader()
   });
-  // urlResponse.patients is an S3 pre-signed URL
   const patientsResponse = await podiAxios<{ patients: Array<BrannockPatient> }>(
     urlResponse.patients,
     {} // no auth header needed for pre-signed S3 URL
@@ -28,14 +27,25 @@ export const getBrannockPatients = async (): Promise<Array<BrannockPatient>> => 
 export const getPatientMetadata = async (): Promise<PatientMetadata> => {
   if (ENV.ENV === 'LOCAL') return Promise.resolve(mockPatientMetadata);
 
-  return podiAxios<PatientMetadata>(`${ENV.API_BASE_URL}/templates/metadata`, {
-    headers: getAuthHeader()
-  });
+  // This endpoint doesn't exist yet — return empty metadata so the app
+  // still works against real environments (filters just won't narrow).
+  try {
+    return await podiAxios<PatientMetadata>(`${ENV.API_BASE_URL}/templates/metadata`, {
+      headers: getAuthHeader()
+    });
+  } catch {
+    return {
+      number_of_scans_for_patients_without_templates: {},
+      number_of_single_foot_scans_for_single_foot_patients: {},
+      number_of_single_foot_scans_for_two_feet_patients: {}
+    };
+  }
 };
 
 // ── Patient scans ─────────────────────────────────────────────
-// Legacy: GET {patient.scans_url}?scan_type=user&start_date=2024-10-01&end_date={today}
-// Filters out scans without mat_thermogram_url and schema_id === 9 (SM+ scans).
+// GET {patient.scans_url}?scan_type=user&start_date=...&end_date=...
+// Filters: must have mat_thermogram_url AND schema_id !== 9.
+// Note: schema_id may come as float (4104.0) in some envs.
 export const getBrannockScans = async (scansUrl: string): Promise<Array<BrannockScan>> => {
   if (ENV.ENV === 'LOCAL') return Promise.resolve(mockScans);
 
@@ -44,11 +54,17 @@ export const getBrannockScans = async (scansUrl: string): Promise<Array<Brannock
   const res = await podiAxios<{ scans: Array<BrannockScan> }>(url, {
     headers: getAuthHeader()
   });
-  return res.scans.filter((scan) => scan.mat_thermogram_url && scan.schema_id !== 9);
+  return res.scans.filter((scan) => {
+    if (!scan.mat_thermogram_url) return false;
+    // schema_id may be null, int, or float — coerce to number for comparison
+    const schemaId = scan.schema_id != null ? Math.round(Number(scan.schema_id)) : null;
+    if (schemaId === 9) return false;
+    return true;
+  });
 };
 
 // ── Thermogram fetch ──────────────────────────────────────────
-// Legacy: GET {scan.mat_thermogram_url}?decimals=2
+// GET {scan.mat_thermogram_url}?decimals=2
 // Returns { thermogram: number[][] } — a 2D array of temperature values.
 export const getMatThermogram = async (matThermogramUrl: string): Promise<Array<Array<number>>> => {
   if (ENV.ENV === 'LOCAL') return Promise.resolve(mockThermogram);
@@ -60,20 +76,11 @@ export const getMatThermogram = async (matThermogramUrl: string): Promise<Array<
 };
 
 // ── Template build ────────────────────────────────────────────
-// Legacy: All computation was client-side (numpy/scipy). Now server-side.
 // TODO: New endpoint needed — POST /api/v1/templates/build
-//
-// The server runs template.build_templates() for auto mode or
-// cleats.templates.stack_thermograms() for manual mode.
-//
-// This may be a long-running operation (5-30s). The initial
-// implementation uses a blocking POST. If build times exceed 30s,
-// upgrade to an async job pattern:
-//   POST /api/v1/templates/build → 202 { job_id }
-//   GET  /api/v1/templates/build/{job_id} → { status, result? }
+// Uses mock in LOCAL. In real environments this endpoint doesn't exist yet,
+// so the mutation will fail with a server error until the backend implements it.
 export const buildTemplate = async (request: TemplateBuildRequest): Promise<TemplateBuildResponse> => {
   if (ENV.ENV === 'LOCAL') {
-    // Simulate server-side build time
     await new Promise((resolve) => setTimeout(resolve, 2000));
     return Promise.resolve(mockTemplateBuildResponse);
   }
@@ -82,23 +89,16 @@ export const buildTemplate = async (request: TemplateBuildRequest): Promise<Temp
     method: 'POST',
     headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
     data: request,
-    timeout: 60000 // 60s timeout for long-running builds
+    timeout: 60000
   });
 };
 
 // ── Template save ─────────────────────────────────────────────
-// Legacy: Uploads 2 events to cloud storage pending/ folder:
-//   1. { which: "patient_template_defined", what: { template data } }
-//   2. { which: "process_new_template_patient_scans", what: { patient_id, earliest_scan_id } }
-//
 // TODO: New endpoint needed — POST /api/v1/templates
-// The server handles event creation and cloud storage upload internally.
-// The payload matches the legacy event shape: { which, what }.
+// Uses mock in LOCAL. Payload: { which: "patient_template_defined", what: {...} }
 export const saveTemplate = async (payload: TemplateSavePayload): Promise<void> => {
   if (ENV.ENV === 'LOCAL') {
     console.log('[MOCK] saveTemplate event:', JSON.stringify(payload, null, 2).slice(0, 500) + '...');
-    console.log('[MOCK] full payload keys:', Object.keys(payload));
-    console.log('[MOCK] what keys:', Object.keys(payload.what));
     console.log('[MOCK] keypoints:', JSON.stringify(payload.what.keypoints, null, 2));
     return Promise.resolve();
   }

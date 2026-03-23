@@ -16,16 +16,28 @@ export const getEnv = (): Env => {
   }
 };
 
-const SalusBaseUrlMap: Record<Env, string> = {
-  LOCAL: 'http://localhost:3000/api/v1',
-  DEV: 'https://app.dev.podimetrics.com/api/v1',
-  UAT: 'https://app.uat.podimetrics.com/api/v1',
-  PROD: 'https://app.podimetrics.com/api/v1'
+// DEV API base URL uses the same hostname the app is served from.
+// The API is co-located behind the same CloudFront distribution.
+const getApiBaseUrl = (): string => {
+  const env = getEnv();
+  switch (env) {
+    case 'LOCAL':
+      return 'http://localhost:3000/api/v1';
+    case 'DEV':
+      return `https://${location.hostname}/api/v1`;
+    case 'UAT':
+      return 'https://app.uat.podimetrics.com/api/v1';
+    case 'PROD':
+      return 'https://app.podimetrics.com/api/v1';
+  }
 };
 
 export const ENV = {
   ENV: getEnv(),
-  API_BASE_URL: SalusBaseUrlMap[getEnv()]
+  API_BASE_URL: getApiBaseUrl(),
+  // Always-live API URL for pages that need real data even on localhost (e.g. auto-keypoint demo).
+  // Falls back to the normal API base URL in deployed environments.
+  DEV_API_BASE_URL: getEnv() === 'LOCAL' ? 'https://tmplt.dev.podimetrics.com/api/v1' : getApiBaseUrl()
 };
 
 export enum STORAGE_KEYS {

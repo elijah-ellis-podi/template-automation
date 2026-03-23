@@ -9,18 +9,19 @@ export interface LoginCreds {
 
 export const login = ({ email, password }: LoginCreds) => {
   if (ENV.ENV === 'LOCAL') {
-    return Promise.resolve({ message: 'ok', session_id: 'mock-session-token', where_to: '/brannock' });
+    return Promise.resolve({ message: 'ok', session_id: 'mock-session-token', where_to: '/dashboard' });
   }
 
+  // API expects JSON body with { user_id, password } at /sessions (no trailing slash).
   return podiAxios<{
     message: string;
     session_id: string;
     where_to: string;
-  }>(`${ENV.API_BASE_URL}/sessions/`, {
+  }>(`${ENV.API_BASE_URL}/sessions`, {
     method: 'POST',
-    data: JSON.stringify({ user_id: email, password }),
+    data: { user_id: email, password },
     headers: {
-      'content-type': 'application/x-www-form-urlencoded; charset=UTF-8'
+      'Content-Type': 'application/json'
     }
   });
 };

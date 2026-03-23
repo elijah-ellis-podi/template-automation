@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as ManualBuildRouteImport } from './routes/manual-build'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as DashboardRouteImport } from './routes/dashboard'
+import { Route as AutoKeypointsRouteImport } from './routes/auto-keypoints'
 import { Route as IndexRouteImport } from './routes/index'
 
 const ManualBuildRoute = ManualBuildRouteImport.update({
@@ -29,6 +30,11 @@ const DashboardRoute = DashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AutoKeypointsRoute = AutoKeypointsRouteImport.update({
+  id: '/auto-keypoints',
+  path: '/auto-keypoints',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -37,12 +43,14 @@ const IndexRoute = IndexRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/auto-keypoints': typeof AutoKeypointsRoute
   '/dashboard': typeof DashboardRoute
   '/login': typeof LoginRoute
   '/manual-build': typeof ManualBuildRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/auto-keypoints': typeof AutoKeypointsRoute
   '/dashboard': typeof DashboardRoute
   '/login': typeof LoginRoute
   '/manual-build': typeof ManualBuildRoute
@@ -50,20 +58,28 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/auto-keypoints': typeof AutoKeypointsRoute
   '/dashboard': typeof DashboardRoute
   '/login': typeof LoginRoute
   '/manual-build': typeof ManualBuildRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/dashboard' | '/login' | '/manual-build'
+  fullPaths: '/' | '/auto-keypoints' | '/dashboard' | '/login' | '/manual-build'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/dashboard' | '/login' | '/manual-build'
-  id: '__root__' | '/' | '/dashboard' | '/login' | '/manual-build'
+  to: '/' | '/auto-keypoints' | '/dashboard' | '/login' | '/manual-build'
+  id:
+    | '__root__'
+    | '/'
+    | '/auto-keypoints'
+    | '/dashboard'
+    | '/login'
+    | '/manual-build'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AutoKeypointsRoute: typeof AutoKeypointsRoute
   DashboardRoute: typeof DashboardRoute
   LoginRoute: typeof LoginRoute
   ManualBuildRoute: typeof ManualBuildRoute
@@ -92,6 +108,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/auto-keypoints': {
+      id: '/auto-keypoints'
+      path: '/auto-keypoints'
+      fullPath: '/auto-keypoints'
+      preLoaderRoute: typeof AutoKeypointsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -104,6 +127,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AutoKeypointsRoute: AutoKeypointsRoute,
   DashboardRoute: DashboardRoute,
   LoginRoute: LoginRoute,
   ManualBuildRoute: ManualBuildRoute,

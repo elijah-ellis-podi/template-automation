@@ -53,8 +53,8 @@ function filterAndSortPatients(
     filtered = [...filtered].sort((a, b) => a.last_name.localeCompare(b.last_name));
   } else {
     filtered = [...filtered].sort((a, b) => {
-      const nameA = `${a.first_name} ${a.last_name}`;
-      const nameB = `${b.first_name} ${b.last_name}`;
+      const nameA = `${a.patient_designation || ''} ${a.first_name} ${a.last_name}`;
+      const nameB = `${b.patient_designation || ''} ${b.first_name} ${b.last_name}`;
       return tokenSetRatio(searchText, nameB) - tokenSetRatio(searchText, nameA);
     });
   }
@@ -175,13 +175,17 @@ export const PatientSelector: FC<PatientSelectorProps> = ({ selectedPatientId, o
                 )}
               >
                 <span className="font-medium">
-                  {patient.first_name} {patient.last_name}
+                  {patient.patient_designation || `${patient.first_name} ${patient.last_name}`.trim() || patient.patient_id.slice(0, 8)}
                 </span>
-                {metadata && metadata.number_of_scans_for_patients_without_templates[patient.patient_id] !== undefined && (
-                  <span className={cn('ml-2 text-xs', isSelected ? 'text-gray-300' : 'text-gray-400')}>
-                    ({metadata.number_of_scans_for_patients_without_templates[patient.patient_id]} scans, no template)
+                {patient.template_id ? (
+                  <span className={cn('ml-2 text-xs', isSelected ? 'text-gray-300' : 'text-green-500')}>has template</span>
+                ) : metadata && metadata.number_of_scans_for_patients_without_templates[patient.patient_id] !== undefined ? (
+                  <span className={cn('ml-2 text-xs', isSelected ? 'text-gray-300' : 'text-amber-500')}>
+                    {metadata.number_of_scans_for_patients_without_templates[patient.patient_id]} scans, no template
                   </span>
-                )}
+                ) : !patient.template_id ? (
+                  <span className={cn('ml-2 text-xs', isSelected ? 'text-gray-300' : 'text-gray-400')}>no template</span>
+                ) : null}
               </div>
             );
           })

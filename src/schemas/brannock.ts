@@ -1,12 +1,18 @@
 import { z } from 'zod';
 
-// ── Patient (from API — different shape than Device) ──────────
+// ── Patient (from API) ────────────────────────────────────────
+// In the real API, first_name is often empty and last_name holds the
+// patient_designation (e.g. "DH-1838"). patient_designation is the
+// canonical display name.
 export const BrannockPatientSchema = z.object({
   patient_id: z.string(),
   first_name: z.string(),
   last_name: z.string(),
   affiliations: z.array(z.string().nullable()),
-  scans_url: z.string()
+  scans_url: z.string(),
+  patient_designation: z.string().nullish(),
+  template_id: z.string().nullish(),
+  template_type: z.string().nullish()
 });
 export type BrannockPatient = z.infer<typeof BrannockPatientSchema>;
 

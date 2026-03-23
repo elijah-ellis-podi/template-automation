@@ -14,7 +14,8 @@ const TanStackRouterDevtools =
 
 const NAV_ITEMS = [
   { label: 'Dashboard', to: '/dashboard' },
-  { label: 'Manual Template Build', to: '/manual-build' }
+  { label: 'Manual Template Build', to: '/manual-build' },
+  { label: 'Auto Keypoint Demo', to: '/auto-keypoints' }
 ] as const;
 
 const SiteNavigation = () => {
