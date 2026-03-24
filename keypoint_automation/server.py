@@ -74,6 +74,13 @@ class KeypointCoord(BaseModel):
     name: str
     x: Optional[float] = None
     y: Optional[float] = None
+    confidence: Optional[float] = None
+
+
+class ImageClassification(BaseModel):
+    foot_count: Optional[str] = None
+    detected_feet: Optional[list[str]] = None
+    anomalies: Optional[str] = None
 
 
 class ModelResult(BaseModel):
@@ -81,21 +88,24 @@ class ModelResult(BaseModel):
     side: str
     keypoints: list[KeypointCoord]
     error: Optional[str] = None
+    image_classification: Optional[ImageClassification] = None
 
 
 class PredictResponse(BaseModel):
     results: list[ModelResult]
 
 
-def _coords_to_keypoints(coords: np.ndarray) -> list[KeypointCoord]:
-    """Convert (6,2) numpy array to list of KeypointCoord."""
+def _coords_to_keypoints(coords: np.ndarray, confidences: Optional[dict] = None) -> list[KeypointCoord]:
+    """Convert (6,2) numpy array to list of KeypointCoord.
+    confidences: optional dict mapping keypoint name to float confidence."""
     out = []
     for i, name in enumerate(KEYPOINT_NAMES):
         x, y = coords[i]
+        conf = confidences.get(name) if confidences else None
         if np.isnan(x) or np.isnan(y):
-            out.append(KeypointCoord(name=name, x=None, y=None))
+            out.append(KeypointCoord(name=name, x=None, y=None, confidence=conf))
         else:
-            out.append(KeypointCoord(name=name, x=round(float(x), 5), y=round(float(y), 5)))
+            out.append(KeypointCoord(name=name, x=round(float(x), 5), y=round(float(y), 5), confidence=conf))
     return out
 
 
@@ -126,10 +136,50 @@ def _run_claude(thermo: np.ndarray, side: str) -> ModelResult:
         return ModelResult(model='claude', side=side, keypoints=[],
                           error='ANTHROPIC_API_KEY not set or client init failed')
     try:
-        coords = claude_keypoints.predict_keypoints(thermo, side, client=client)
-        return ModelResult(model='claude', side=side, keypoints=_coords_to_keypoints(coords))
+        raw_result = claude_keypoints.predict_keypoints_full(thermo, side, client=client)
+
+        # New format: { image_classification: {...}, feet: { left: {...}, right: {...} } }
+        if isinstance(raw_result, dict) and 'feet' in raw_result:
+            feet_data = raw_result.get('feet', {})
+            foot_data = feet_data.get(side, {})
+            img_class_raw = raw_result.get('image_classification')
+
+            img_class = None
+            if img_class_raw:
+                img_class = ImageClassification(
+                    foot_count=img_class_raw.get('foot_count'),
+                    detected_feet=img_class_raw.get('detected_feet'),
+                    anomalies=img_class_raw.get('anomalies'),
+                )
+
+            kps = []
+            confidences = {}
+            coords = np.full((len(KEYPOINT_NAMES), 2), np.nan)
+            for i, name in enumerate(KEYPOINT_NAMES):
+                entry = foot_data.get(name)
+                if entry is not None and 'x' in entry and 'y' in entry:
+                    coords[i] = [entry['x'], entry['y']]
+                    if 'confidence' in entry:
+                        confidences[name] = entry['confidence']
+
+            return ModelResult(
+                model='claude', side=side,
+                keypoints=_coords_to_keypoints(coords, confidences),
+                image_classification=img_class,
+            )
+
+        # Legacy format: (6,2) numpy array
+        if isinstance(raw_result, np.ndarray):
+            return ModelResult(model='claude', side=side, keypoints=_coords_to_keypoints(raw_result))
+
+        return ModelResult(model='claude', side=side, keypoints=[], error='Unexpected response format')
     except Exception as e:
-        return ModelResult(model='claude', side=side, keypoints=[], error=str(e))
+        # Fallback to old API if predict_keypoints_full doesn't exist
+        try:
+            coords = claude_keypoints.predict_keypoints(thermo, side, client=client)
+            return ModelResult(model='claude', side=side, keypoints=_coords_to_keypoints(coords))
+        except Exception as e2:
+            return ModelResult(model='claude', side=side, keypoints=[], error=str(e2))
 
 
 def _run_ensemble(thermo: np.ndarray, side: str) -> ModelResult:

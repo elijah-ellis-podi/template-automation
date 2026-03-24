@@ -59,11 +59,39 @@ async function fetchThermogram(matThermogramUrl: string): Promise<Array<Array<nu
   return res.thermogram;
 }
 
+// ── Scan metadata from PADS (old algorithm scores) ───────────
+interface ScanMetadata {
+  template_mismatch: boolean | null;
+  left_footness: number | null;
+  right_footness: number | null;
+  scan_status: string | null;
+  is_elevated_scan: boolean | null;
+}
+
+async function fetchScanMetadata(scanId: string): Promise<ScanMetadata> {
+  const res = await podiAxios<{ scan: Record<string, any> }>(`${PADS_API}/scans/${scanId}`, { headers: getAuthHeader() });
+  const s = res.scan;
+  return {
+    template_mismatch: s.template_mismatch ?? null,
+    left_footness: s.left_footness != null ? Number(s.left_footness) : null,
+    right_footness: s.right_footness != null ? Number(s.right_footness) : null,
+    scan_status: s.scan_status ?? null,
+    is_elevated_scan: s.is_elevated_scan ?? null
+  };
+}
+
 // ── Keypoint server types ────────────────────────────────────
 interface KpCoord {
   name: string;
   x: number | null;
   y: number | null;
+  confidence?: number | null;
+}
+
+interface ImageClassificationRaw {
+  foot_count?: string | null;
+  detected_feet?: Array<string> | null;
+  anomalies?: string | null;
 }
 
 interface ModelResultRaw {
@@ -71,17 +99,29 @@ interface ModelResultRaw {
   side: string;
   keypoints: Array<KpCoord>;
   error?: string | null;
+  image_classification?: ImageClassificationRaw | null;
 }
 
 interface PredictResponseRaw {
   results: Array<ModelResultRaw>;
 }
 
+interface ParsedResults {
+  byModel: Map<string, Array<KeypointResult>>;
+  imageClassification: ImageClassificationRaw | null;
+}
+
 // Convert server response into display-ready format
-function serverResultToKeypoints(results: Array<ModelResultRaw>): Map<string, Array<KeypointResult>> {
+function serverResultToParsed(results: Array<ModelResultRaw>): ParsedResults {
   const byModel = new Map<string, Array<KeypointResult>>();
+  let imageClassification: ImageClassificationRaw | null = null;
 
   for (const r of results) {
+    // Capture image_classification from Claude result
+    if (r.image_classification && !imageClassification) {
+      imageClassification = r.image_classification;
+    }
+
     if (r.error || r.keypoints.length === 0) continue;
 
     if (!byModel.has(r.model)) {
@@ -91,16 +131,20 @@ function serverResultToKeypoints(results: Array<ModelResultRaw>): Map<string, Ar
     const arr = byModel.get(r.model)!;
     for (const kp of r.keypoints) {
       const entry = arr.find((e) => e.name === kp.name);
-      if (!entry || kp.x == null || kp.y == null) continue;
+      if (!entry) continue;
+      // A null keypoint means anatomy is absent — keep the entry without coords
+      if (kp.x == null || kp.y == null) continue;
       if (r.side === 'left') {
         entry.left = { x: kp.x, y: kp.y };
+        entry.leftConfidence = kp.confidence ?? null;
       } else {
         entry.right = { x: kp.x, y: kp.y };
+        entry.rightConfidence = kp.confidence ?? null;
       }
     }
   }
 
-  return byModel;
+  return { byModel, imageClassification };
 }
 
 // ── Components ───────────────────────────────────────────────
@@ -188,6 +232,7 @@ function AutoKeypointsPage() {
 
   // Model results keyed by model name
   const [modelResults, setModelResults] = useState<Map<string, Array<KeypointResult>>>(new Map());
+  const [imageClassification, setImageClassification] = useState<ImageClassificationRaw | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
   const [serverErrors, setServerErrors] = useState<Array<{ model: string; error: string }>>([]);
@@ -212,12 +257,21 @@ function AutoKeypointsPage() {
     enabled: !!selectedScan?.mat_thermogram_url
   });
 
+  // ── Scan metadata (old algorithm scores) ──
+  const { data: scanMeta } = useQuery({
+    queryKey: ['scan-metadata', selectedScan?.scan_id],
+    queryFn: () => fetchScanMetadata(selectedScan!.scan_id),
+    staleTime: Infinity,
+    enabled: !!selectedScan?.scan_id
+  });
+
   const handleLoadPatient = useCallback(() => {
     const trimmed = inputValue.trim();
     if (trimmed) {
       setActivePatientId(trimmed);
       setSelectedScanId(null);
       setModelResults(new Map());
+      setImageClassification(null);
       setRunError(null);
       setServerErrors([]);
     }
@@ -226,6 +280,7 @@ function AutoKeypointsPage() {
   const handleSelectScan = useCallback((scanId: string) => {
     setSelectedScanId(scanId);
     setModelResults(new Map());
+    setImageClassification(null);
     setRunError(null);
     setServerErrors([]);
   }, []);
@@ -244,8 +299,9 @@ function AutoKeypointsPage() {
           models
         });
 
-        const byModel = serverResultToKeypoints(res.data.results);
-        setModelResults(byModel);
+        const parsed = serverResultToParsed(res.data.results);
+        setModelResults(parsed.byModel);
+        setImageClassification(parsed.imageClassification);
 
         // Collect errors from individual models
         const errors = res.data.results.filter((r) => r.error).map((r) => ({ model: r.model, error: r.error! }));
@@ -258,8 +314,8 @@ function AutoKeypointsPage() {
         });
         setServerErrors(uniqueErrors);
 
-        if (byModel.size > 0) {
-          toast.success(`${byModel.size} model(s) returned results`);
+        if (parsed.byModel.size > 0) {
+          toast.success(`${parsed.byModel.size} model(s) returned results`);
         }
       } catch (e: any) {
         const msg = e?.response?.data?.detail || e?.message || 'Failed to reach keypoint server';
@@ -351,7 +407,30 @@ function AutoKeypointsPage() {
                 <p className="mt-1 text-xs text-gray-400">
                   Thermogram: {selectedThermogram.length} x {selectedThermogram[0]?.length} px | Scan: {selectedScan?.scan_id?.slice(0, 20)}...
                 </p>
-                <div className="mt-3 flex flex-wrap gap-2">
+                {/* Existing algorithm scores from PADS */}
+              {scanMeta && (
+                <div className="mt-2 flex flex-wrap items-center gap-3 rounded-md bg-gray-50 px-3 py-2 text-xs">
+                  <span className="font-medium text-gray-500">Production PADS footness</span>
+                  <span className={scanMeta.template_mismatch ? 'text-red-600' : 'text-green-600'}>
+                    Template match: {scanMeta.template_mismatch ? 'MISMATCH' : 'OK'}
+                  </span>
+                  <span className="text-gray-400">|</span>
+                  <span className="text-gray-700">
+                    L footness: <span className="font-mono">{scanMeta.left_footness != null ? scanMeta.left_footness.toFixed(3) : '—'}</span>
+                  </span>
+                  <span className="text-gray-700">
+                    R footness: <span className="font-mono">{scanMeta.right_footness != null ? scanMeta.right_footness.toFixed(3) : '—'}</span>
+                  </span>
+                  {scanMeta.scan_status && (
+                    <>
+                      <span className="text-gray-400">|</span>
+                      <span className="text-gray-600">Status: {scanMeta.scan_status}</span>
+                    </>
+                  )}
+                </div>
+              )}
+
+              <div className="mt-3 flex flex-wrap gap-2">
                   <button
                     onClick={() => handleRunModels(['geometric'])}
                     disabled={isRunning}
@@ -377,6 +456,7 @@ function AutoKeypointsPage() {
                     <button
                       onClick={() => {
                         setModelResults(new Map());
+                        setImageClassification(null);
                         setServerErrors([]);
                       }}
                       className="cursor-pointer rounded-md border border-gray-300 px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-50"
@@ -411,32 +491,73 @@ function AutoKeypointsPage() {
                     </h3>
                     <p className="text-xs text-gray-400">Few-shot prompting with Claude Opus 4.6 — keypoints predicted directly from the thermogram image</p>
                   </div>
-                  <span className="text-sm text-gray-500">{claudeResults.filter((kp) => kp.left || kp.right).length}/6 keypoints</span>
+                  <span className="text-sm text-gray-500">
+                    {claudeResults.filter((kp) => kp.left || kp.right).length}/6 keypoints
+                  </span>
                 </div>
+
+                {/* Image classification badge */}
+                {imageClassification && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                    {imageClassification.foot_count && (
+                      <span className="rounded bg-gray-100 px-2 py-0.5 text-gray-600">
+                        {imageClassification.foot_count === 'pair' ? 'Bilateral (pair)' : 'Single foot'}
+                      </span>
+                    )}
+                    {imageClassification.detected_feet && (
+                      <span className="rounded bg-blue-50 px-2 py-0.5 text-blue-600">
+                        Detected: {imageClassification.detected_feet.join(', ')}
+                      </span>
+                    )}
+                    {imageClassification.anomalies && imageClassification.anomalies !== 'none' && (
+                      <span className="rounded bg-amber-50 px-2 py-0.5 text-amber-700">{imageClassification.anomalies}</span>
+                    )}
+                    {imageClassification.anomalies === 'none' && (
+                      <span className="rounded bg-green-50 px-2 py-0.5 text-green-600">No anomalies</span>
+                    )}
+                  </div>
+                )}
+
                 <div className="mt-3 rounded bg-gray-900 p-2">
                   <KeypointOverlayCanvas thermogramData={selectedThermogram} keypoints={claudeResults} />
                 </div>
                 <div className="mt-3">
                   <KeypointLegend />
                 </div>
-                {/* Coordinate table */}
+                {/* Coordinate + confidence table */}
                 <div className="mt-3 overflow-x-auto">
                   <table className="w-full text-left text-xs">
                     <thead>
                       <tr className="border-b text-gray-500">
                         <th className="pb-1 pr-4">Keypoint</th>
                         <th className="pb-1 pr-4">Left (x, y)</th>
-                        <th className="pb-1">Right (x, y)</th>
+                        <th className="pb-1 pr-4">L Conf</th>
+                        <th className="pb-1 pr-4">Right (x, y)</th>
+                        <th className="pb-1">R Conf</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {claudeResults.map((kp) => (
-                        <tr key={kp.name} className="border-b border-gray-50">
-                          <td className="py-1 pr-4 font-medium text-gray-700">{kp.name}</td>
-                          <td className="py-1 pr-4 font-mono text-gray-600">{kp.left ? `(${kp.left.x.toFixed(3)}, ${kp.left.y.toFixed(3)})` : '—'}</td>
-                          <td className="py-1 font-mono text-gray-600">{kp.right ? `(${kp.right.x.toFixed(3)}, ${kp.right.y.toFixed(3)})` : '—'}</td>
-                        </tr>
-                      ))}
+                      {claudeResults.map((kp) => {
+                        const fmtConf = (c: number | null | undefined) => {
+                          if (c == null) return <span className="text-gray-300">—</span>;
+                          const pct = Math.round(c * 100);
+                          const color = c >= 0.7 ? 'text-green-600' : c >= 0.4 ? 'text-amber-600' : 'text-red-500';
+                          return <span className={color}>{pct}%</span>;
+                        };
+                        return (
+                          <tr key={kp.name} className="border-b border-gray-50">
+                            <td className="py-1 pr-4 font-medium text-gray-700">{kp.name}</td>
+                            <td className="py-1 pr-4 font-mono text-gray-600">
+                              {kp.left ? `(${kp.left.x.toFixed(3)}, ${kp.left.y.toFixed(3)})` : <span className="text-gray-300">null</span>}
+                            </td>
+                            <td className="py-1 pr-4">{kp.left ? fmtConf(kp.leftConfidence) : '—'}</td>
+                            <td className="py-1 pr-4 font-mono text-gray-600">
+                              {kp.right ? `(${kp.right.x.toFixed(3)}, ${kp.right.y.toFixed(3)})` : <span className="text-gray-300">null</span>}
+                            </td>
+                            <td className="py-1">{kp.right ? fmtConf(kp.rightConfidence) : '—'}</td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
