@@ -1,0 +1,24 @@
+{
+  "patient_id": "4422e3314da8b7313800bb19f4df10b4",
+  "last_name": "RY-012566",
+  "serial_number": "222-240701-0258",
+  "device_id": "222-240701-0258",
+  "first_name": "",
+  "mismatch_count": 0.0,
+  "person_url": "https://app.podimetrics.com/api/v1/people/4422e3314da8b7313800bb19f4df10b4",
+  "scans_url": "https://app.podimetrics.com/api/v1/patients/4422e3314da8b7313800bb19f4df10b4/scans",
+  "notifications_url": "https://app.podimetrics.com/api/v1/patients/4422e3314da8b7313800bb19f4df10b4/notifications",
+  "when_last_used": "2026-03-23T15:11:47",
+  "current_ulceration_risk": 0,
+  "current_temperature_asymmetry": 1.871466352399377,
+  "current_adherence": 5.6,
+  "template_id": "9AGvTw45ecoaClUPGK8um7",
+  "template_type": "bilateral",
+  "affiliations": [
+    "Superior"
+  ],
+  "site": "Superior",
+  "date_assigned": "2025-08-05T15:20:41.511097+00:00",
+  "patient_designation": "RY-012566",
+  "customer": "Superior"
+}

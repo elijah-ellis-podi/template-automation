@@ -1,0 +1,24 @@
+{
+  "patient_id": "5c694b5715a227fadccd767b7c494b07",
+  "last_name": "RB-5357",
+  "serial_number": "213-241106-0243",
+  "device_id": "213-241106-0243",
+  "first_name": "",
+  "mismatch_count": 0.0,
+  "person_url": "https://app.podimetrics.com/api/v1/people/5c694b5715a227fadccd767b7c494b07",
+  "scans_url": "https://app.podimetrics.com/api/v1/patients/5c694b5715a227fadccd767b7c494b07/scans",
+  "notifications_url": "https://app.podimetrics.com/api/v1/patients/5c694b5715a227fadccd767b7c494b07/notifications",
+  "when_last_used": "2026-03-23T12:24:14",
+  "current_ulceration_risk": null,
+  "current_temperature_asymmetry": 4.831079295384505,
+  "current_adherence": 4.7,
+  "template_id": "xJrpved2saTS7Lu4gfHBR3",
+  "template_type": null,
+  "affiliations": [
+    "VA Joliet"
+  ],
+  "customer": "VA",
+  "date_assigned": "2024-11-29T20:18:57.788773+00:00",
+  "patient_designation": "RB-5357",
+  "site": "Joliet"
+}

@@ -1,0 +1,24 @@
+{
+  "patient_id": "917a8d4220f79291477ca7e2aaab7eee",
+  "last_name": "FW-9045",
+  "serial_number": "213-250424-0041",
+  "device_id": "213-250424-0041",
+  "first_name": "",
+  "mismatch_count": 0.0,
+  "person_url": "https://app.podimetrics.com/api/v1/people/917a8d4220f79291477ca7e2aaab7eee",
+  "scans_url": "https://app.podimetrics.com/api/v1/patients/917a8d4220f79291477ca7e2aaab7eee/scans",
+  "notifications_url": "https://app.podimetrics.com/api/v1/patients/917a8d4220f79291477ca7e2aaab7eee/notifications",
+  "when_last_used": "2026-03-22T17:36:38",
+  "current_ulceration_risk": null,
+  "current_temperature_asymmetry": null,
+  "current_adherence": 2.5,
+  "template_id": "gcAfhezeqGJpcA9ljxlizq",
+  "template_type": "left",
+  "affiliations": [
+    "VA Minneapolis"
+  ],
+  "customer": "VA",
+  "date_assigned": "2024-11-29T20:17:32.823387+00:00",
+  "patient_designation": "FW-9045",
+  "site": "Minneapolis"
+}

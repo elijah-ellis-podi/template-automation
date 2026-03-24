@@ -1,0 +1,24 @@
+{
+  "patient_id": "47ba16ded32dc1dbd5d0c35e7513bb41",
+  "last_name": "MF-0733",
+  "serial_number": "212-250204-0128",
+  "device_id": "212-250204-0128",
+  "first_name": "",
+  "mismatch_count": 0.0,
+  "person_url": "https://app.podimetrics.com/api/v1/people/47ba16ded32dc1dbd5d0c35e7513bb41",
+  "scans_url": "https://app.podimetrics.com/api/v1/patients/47ba16ded32dc1dbd5d0c35e7513bb41/scans",
+  "notifications_url": "https://app.podimetrics.com/api/v1/patients/47ba16ded32dc1dbd5d0c35e7513bb41/notifications",
+  "when_last_used": "2026-03-22T01:55:26",
+  "current_ulceration_risk": null,
+  "current_temperature_asymmetry": 2.926576915617993,
+  "current_adherence": 2.7,
+  "template_id": "HmFZGZkESwwtsLpbHtqQyF",
+  "template_type": null,
+  "affiliations": [
+    "VA Mobile"
+  ],
+  "customer": "VA",
+  "date_assigned": "2024-11-29T20:19:19.787204+00:00",
+  "patient_designation": "MF-0733",
+  "site": "Mobile"
+}

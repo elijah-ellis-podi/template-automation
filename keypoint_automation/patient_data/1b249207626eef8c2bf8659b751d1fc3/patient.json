@@ -1,0 +1,24 @@
+{
+  "patient_id": "1b249207626eef8c2bf8659b751d1fc3",
+  "last_name": "WF-5269",
+  "serial_number": "213-250604-0215",
+  "device_id": "213-250604-0215",
+  "first_name": "",
+  "mismatch_count": 0.0,
+  "person_url": "https://app.podimetrics.com/api/v1/people/1b249207626eef8c2bf8659b751d1fc3",
+  "scans_url": "https://app.podimetrics.com/api/v1/patients/1b249207626eef8c2bf8659b751d1fc3/scans",
+  "notifications_url": "https://app.podimetrics.com/api/v1/patients/1b249207626eef8c2bf8659b751d1fc3/notifications",
+  "when_last_used": "2026-03-22T22:05:32",
+  "current_ulceration_risk": 0,
+  "current_temperature_asymmetry": null,
+  "current_adherence": 4.6,
+  "template_id": "C2FeXuHWC3Mpe67dZErzgM",
+  "template_type": "right",
+  "affiliations": [
+    "VA Hampton"
+  ],
+  "site": "Hampton",
+  "date_assigned": "2025-12-18T17:21:53.930178+00:00",
+  "patient_designation": "WF-5269",
+  "customer": "VA"
+}

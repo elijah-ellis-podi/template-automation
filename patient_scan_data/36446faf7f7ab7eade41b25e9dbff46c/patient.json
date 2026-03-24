@@ -1,0 +1,24 @@
+{
+  "patient_id": "36446faf7f7ab7eade41b25e9dbff46c",
+  "last_name": "KD-4547",
+  "serial_number": "213-250331-0169",
+  "device_id": "213-250331-0169",
+  "first_name": "",
+  "mismatch_count": 0.0,
+  "person_url": "https://app.podimetrics.com/api/v1/people/36446faf7f7ab7eade41b25e9dbff46c",
+  "scans_url": "https://app.podimetrics.com/api/v1/patients/36446faf7f7ab7eade41b25e9dbff46c/scans",
+  "notifications_url": "https://app.podimetrics.com/api/v1/patients/36446faf7f7ab7eade41b25e9dbff46c/notifications",
+  "when_last_used": "2026-03-23T01:01:22",
+  "current_ulceration_risk": null,
+  "current_temperature_asymmetry": 4.722026826638647,
+  "current_adherence": 4.6,
+  "template_id": "PqVYpQCN63PrXKVFoYfmjq",
+  "template_type": null,
+  "affiliations": [
+    "VA New Orleans"
+  ],
+  "customer": "VA",
+  "date_assigned": "2024-11-29T20:19:46.883972+00:00",
+  "patient_designation": "KD-4547",
+  "site": "New Orleans"
+}

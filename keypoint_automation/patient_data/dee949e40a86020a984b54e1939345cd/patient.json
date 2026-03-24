@@ -1,0 +1,24 @@
+{
+  "patient_id": "dee949e40a86020a984b54e1939345cd",
+  "last_name": "KE-6051",
+  "serial_number": "213-250712-0001",
+  "device_id": "213-250712-0001",
+  "first_name": "",
+  "mismatch_count": 0.0,
+  "person_url": "https://app.podimetrics.com/api/v1/people/dee949e40a86020a984b54e1939345cd",
+  "scans_url": "https://app.podimetrics.com/api/v1/patients/dee949e40a86020a984b54e1939345cd/scans",
+  "notifications_url": "https://app.podimetrics.com/api/v1/patients/dee949e40a86020a984b54e1939345cd/notifications",
+  "when_last_used": "2026-03-23T15:31:55",
+  "current_ulceration_risk": 0,
+  "current_temperature_asymmetry": null,
+  "current_adherence": 6.2,
+  "template_id": "dWCyB6wPCUqWNHY7KwxeAn",
+  "template_type": "right",
+  "affiliations": [
+    "VA Lawton"
+  ],
+  "site": "Lawton",
+  "date_assigned": "2026-01-09T20:37:37.102415+00:00",
+  "patient_designation": "KE-6051",
+  "customer": "VA"
+}

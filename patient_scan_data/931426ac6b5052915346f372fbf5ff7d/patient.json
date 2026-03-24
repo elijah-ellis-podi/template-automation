@@ -1,0 +1,24 @@
+{
+  "patient_id": "931426ac6b5052915346f372fbf5ff7d",
+  "last_name": "JG-5252",
+  "serial_number": "213-250505-0150",
+  "device_id": "213-250505-0150",
+  "first_name": "",
+  "mismatch_count": 0.0,
+  "person_url": "https://app.podimetrics.com/api/v1/people/931426ac6b5052915346f372fbf5ff7d",
+  "scans_url": "https://app.podimetrics.com/api/v1/patients/931426ac6b5052915346f372fbf5ff7d/scans",
+  "notifications_url": "https://app.podimetrics.com/api/v1/patients/931426ac6b5052915346f372fbf5ff7d/notifications",
+  "when_last_used": "2026-03-23T13:36:34",
+  "current_ulceration_risk": null,
+  "current_temperature_asymmetry": 10.112601424415839,
+  "current_adherence": 6.6,
+  "template_id": "wTGPWPJPswTusel7cK06AF",
+  "template_type": "right",
+  "affiliations": [
+    "VA Albuquerque"
+  ],
+  "customer": "VA",
+  "date_assigned": "2024-11-29T20:17:11.830919+00:00",
+  "patient_designation": "JG-5252",
+  "site": "Albuquerque"
+}

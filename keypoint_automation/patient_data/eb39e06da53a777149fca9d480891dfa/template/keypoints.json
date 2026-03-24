@@ -1,0 +1,64 @@
+{
+  "keypoints": {
+    "3rd Metatarsal Head": {
+      "right_normalized_coordinate": {
+        "x": 0.49334537,
+        "y": 0.23057251
+      },
+      "left_normalized_coordinate": {
+        "x": 0.53762401,
+        "y": 0.27939311
+      }
+    },
+    "Arch": {
+      "right_normalized_coordinate": {
+        "x": 0.34748631,
+        "y": 0.50489774
+      },
+      "left_normalized_coordinate": {
+        "x": 0.60534428,
+        "y": 0.490949
+      }
+    },
+    "Hallux": {
+      "right_normalized_coordinate": {
+        "x": 0.68087843,
+        "y": 0.11898259
+      },
+      "left_normalized_coordinate": {
+        "x": 0.34488169,
+        "y": 0.14920486
+      }
+    },
+    "5th Metatarsal Head": {
+      "right_normalized_coordinate": {
+        "x": 0.3058123,
+        "y": 0.28869227
+      },
+      "left_normalized_coordinate": {
+        "x": 0.6678553,
+        "y": 0.33286328
+      }
+    },
+    "1st Metatarsal Head": {
+      "right_normalized_coordinate": {
+        "x": 0.69650619,
+        "y": 0.22359814
+      },
+      "left_normalized_coordinate": {
+        "x": 0.31362618,
+        "y": 0.24452125
+      }
+    },
+    "Heel": {
+      "right_normalized_coordinate": {
+        "x": 0.53501938,
+        "y": 0.7954965
+      },
+      "left_normalized_coordinate": {
+        "x": 0.47511299,
+        "y": 0.79317171
+      }
+    }
+  }
+}

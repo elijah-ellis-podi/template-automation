@@ -1,0 +1,24 @@
+{
+  "patient_id": "eb39e06da53a777149fca9d480891dfa",
+  "last_name": "RM-9428",
+  "serial_number": "213-250324-0124",
+  "device_id": "213-250324-0124",
+  "first_name": "",
+  "mismatch_count": 0.0,
+  "person_url": "https://app.podimetrics.com/api/v1/people/eb39e06da53a777149fca9d480891dfa",
+  "scans_url": "https://app.podimetrics.com/api/v1/patients/eb39e06da53a777149fca9d480891dfa/scans",
+  "notifications_url": "https://app.podimetrics.com/api/v1/patients/eb39e06da53a777149fca9d480891dfa/notifications",
+  "when_last_used": "2026-03-22T17:30:55",
+  "current_ulceration_risk": null,
+  "current_temperature_asymmetry": 6.9265918416424626,
+  "current_adherence": 1.6,
+  "template_id": "X37BSRdWx6zunsshCkBMAc",
+  "template_type": null,
+  "affiliations": [
+    "VA Indianapolis"
+  ],
+  "customer": "VA",
+  "date_assigned": "2024-11-29T20:14:21.654922+00:00",
+  "patient_designation": "RM-9428",
+  "site": "Indianapolis"
+}

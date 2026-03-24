@@ -9,10 +9,15 @@ import { getAuthHeader } from '@/services/auth';
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, redirect } from '@tanstack/react-router';
 import { type FC, useState, useCallback } from 'react';
+import toast from 'react-hot-toast';
 import { z } from 'zod';
+import axios from 'axios';
 
-// This page always hits the real API (DEV_API_BASE_URL), even on localhost.
-const API = ENV.DEV_API_BASE_URL;
+// This page always hits the real PADS API for patient/scan data.
+const PADS_API = ENV.DEV_API_BASE_URL;
+
+// Python keypoint detection server (keypoint_automation/server.py)
+const KP_SERVER = 'http://localhost:8787';
 
 const SearchSchema = z.object({
   patientId: z.string().optional()
@@ -29,10 +34,10 @@ export const Route = createFileRoute('/auto-keypoints')({
   component: AutoKeypointsPage
 });
 
-// ── Live API calls (bypass LOCAL mock guard) ─────────────────
+// ── PADS API calls ───────────────────────────────────────────
 async function fetchPatient(patientId: string) {
   const res = await podiAxios<{ patient: { patient_id: string; patient_designation?: string; scans_url: string; template_id?: string } }>(
-    `${API}/patients/${patientId}`,
+    `${PADS_API}/patients/${patientId}`,
     { headers: getAuthHeader() }
   );
   return res.patient;
@@ -41,24 +46,64 @@ async function fetchPatient(patientId: string) {
 async function fetchScans(scansUrl: string): Promise<Array<BrannockScan>> {
   const today = new Date().toISOString().split('T')[0];
   const url = `${scansUrl}?scan_type=user&start_date=2024-10-01&end_date=${today}`;
-  const res = await podiAxios<{ scans: Array<BrannockScan> }>(url, {
-    headers: getAuthHeader()
-  });
-  return res.scans.filter((scan) => {
-    if (!scan.mat_thermogram_url) return false;
-    const schemaId = scan.schema_id != null ? Math.round(Number(scan.schema_id)) : null;
+  const res = await podiAxios<{ scans: Array<BrannockScan> }>(url, { headers: getAuthHeader() });
+  return res.scans.filter((s) => {
+    if (!s.mat_thermogram_url) return false;
+    const schemaId = s.schema_id != null ? Math.round(Number(s.schema_id)) : null;
     return schemaId !== 9;
   });
 }
 
 async function fetchThermogram(matThermogramUrl: string): Promise<Array<Array<number>>> {
-  const res = await podiAxios<{ thermogram: Array<Array<number>> }>(`${matThermogramUrl}?decimals=2`, {
-    headers: getAuthHeader()
-  });
+  const res = await podiAxios<{ thermogram: Array<Array<number>> }>(`${matThermogramUrl}?decimals=2`, { headers: getAuthHeader() });
   return res.thermogram;
 }
 
-// ── Scan thumbnail: loads thermogram and renders it ──
+// ── Keypoint server types ────────────────────────────────────
+interface KpCoord {
+  name: string;
+  x: number | null;
+  y: number | null;
+}
+
+interface ModelResultRaw {
+  model: string;
+  side: string;
+  keypoints: Array<KpCoord>;
+  error?: string | null;
+}
+
+interface PredictResponseRaw {
+  results: Array<ModelResultRaw>;
+}
+
+// Convert server response into display-ready format
+function serverResultToKeypoints(results: Array<ModelResultRaw>): Map<string, Array<KeypointResult>> {
+  const byModel = new Map<string, Array<KeypointResult>>();
+
+  for (const r of results) {
+    if (r.error || r.keypoints.length === 0) continue;
+
+    if (!byModel.has(r.model)) {
+      byModel.set(r.model, r.keypoints.map((kp) => ({ name: kp.name })));
+    }
+
+    const arr = byModel.get(r.model)!;
+    for (const kp of r.keypoints) {
+      const entry = arr.find((e) => e.name === kp.name);
+      if (!entry || kp.x == null || kp.y == null) continue;
+      if (r.side === 'left') {
+        entry.left = { x: kp.x, y: kp.y };
+      } else {
+        entry.right = { x: kp.x, y: kp.y };
+      }
+    }
+  }
+
+  return byModel;
+}
+
+// ── Components ───────────────────────────────────────────────
 const ScanThumbnail: FC<{
   scan: BrannockScan;
   isSelected: boolean;
@@ -70,9 +115,7 @@ const ScanThumbnail: FC<{
     staleTime: Infinity,
     enabled: !!scan.mat_thermogram_url
   });
-
   const dateLabel = scan.when_scan_completed.slice(0, 16).replace('T', ' ');
-
   return (
     <div
       onClick={onSelect}
@@ -97,32 +140,70 @@ const ScanThumbnail: FC<{
   );
 };
 
+// ── Model result card ────────────────────────────────────────
+const MODEL_LABELS: Record<string, { label: string; description: string }> = {
+  geometric: { label: 'Geometric', description: 'Anatomy-based heuristics using mask spatial statistics' },
+  claude: { label: 'Claude Vision', description: 'Few-shot prompting with Claude Opus 4.6 vision API' },
+  ensemble: { label: 'Ensemble', description: 'NaN-safe average of geometric + Claude predictions' }
+};
+
+const ModelCard: FC<{
+  modelName: string;
+  keypoints: Array<KeypointResult>;
+  thermogramData: Array<Array<number>>;
+  isHighlighted?: boolean;
+}> = ({ modelName, keypoints, thermogramData, isHighlighted }) => {
+  const meta = MODEL_LABELS[modelName] ?? { label: modelName, description: '' };
+  const validCount = keypoints.filter((kp) => kp.left || kp.right).length;
+
+  return (
+    <div className={cn('rounded-lg border bg-white shadow-sm', isHighlighted ? 'border-blue-400 ring-2 ring-blue-100' : 'border-gray-200')}>
+      <div className="border-b border-gray-100 px-4 py-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h4 className="text-sm font-semibold text-black">
+              {meta.label}
+              {isHighlighted && <span className="ml-2 rounded bg-blue-100 px-1.5 py-0.5 text-xs text-blue-700">primary</span>}
+            </h4>
+            <p className="text-xs text-gray-400">{meta.description}</p>
+          </div>
+          <span className="text-xs text-gray-500">{validCount}/6 keypoints</span>
+        </div>
+      </div>
+      <div className="p-2">
+        <div className="rounded bg-gray-900 p-1">
+          <KeypointOverlayCanvas thermogramData={thermogramData} keypoints={keypoints} />
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── Main page ────────────────────────────────────────────────
 function AutoKeypointsPage() {
   const { patientId: urlPatientId } = Route.useSearch();
   const [inputValue, setInputValue] = useState(urlPatientId ?? '');
   const [activePatientId, setActivePatientId] = useState<string | null>(urlPatientId ?? null);
   const [selectedScanId, setSelectedScanId] = useState<string | null>(null);
-  const [demoKeypoints, setDemoKeypoints] = useState<Array<KeypointResult>>([]);
 
-  // ── Patient query ──
-  const {
-    data: patient,
-    isLoading: patientLoading,
-    isError: patientError
-  } = useQuery({
+  // Model results keyed by model name
+  const [modelResults, setModelResults] = useState<Map<string, Array<KeypointResult>>>(new Map());
+  const [isRunning, setIsRunning] = useState(false);
+  const [runError, setRunError] = useState<string | null>(null);
+  const [serverErrors, setServerErrors] = useState<Array<{ model: string; error: string }>>([]);
+
+  const { data: patient, isLoading: patientLoading, isError: patientError } = useQuery({
     queryKey: ['auto-kp-patient', activePatientId],
     queryFn: () => fetchPatient(activePatientId!),
     enabled: !!activePatientId
   });
 
-  // ── Scans query ──
   const { data: scans = [], isLoading: scansLoading } = useQuery({
     queryKey: ['brannock-scans', activePatientId],
     queryFn: () => fetchScans(patient!.scans_url),
     enabled: !!patient?.scans_url
   });
 
-  // ── Selected scan thermogram ──
   const selectedScan = scans.find((s) => s.scan_id === selectedScanId) ?? scans[0] ?? null;
   const { data: selectedThermogram } = useQuery({
     queryKey: ['brannock-thermogram', selectedScan?.mat_thermogram_url],
@@ -136,21 +217,73 @@ function AutoKeypointsPage() {
     if (trimmed) {
       setActivePatientId(trimmed);
       setSelectedScanId(null);
-      setDemoKeypoints([]);
+      setModelResults(new Map());
+      setRunError(null);
+      setServerErrors([]);
     }
   }, [inputValue]);
 
   const handleSelectScan = useCallback((scanId: string) => {
     setSelectedScanId(scanId);
-    setDemoKeypoints([]);
+    setModelResults(new Map());
+    setRunError(null);
+    setServerErrors([]);
   }, []);
+
+  const handleRunModels = useCallback(
+    async (models: Array<string>) => {
+      if (!selectedThermogram) return;
+      setIsRunning(true);
+      setRunError(null);
+      setServerErrors([]);
+
+      try {
+        const res = await axios.post<PredictResponseRaw>(`${KP_SERVER}/predict`, {
+          thermogram: selectedThermogram,
+          side: 'both',
+          models
+        });
+
+        const byModel = serverResultToKeypoints(res.data.results);
+        setModelResults(byModel);
+
+        // Collect errors from individual models
+        const errors = res.data.results.filter((r) => r.error).map((r) => ({ model: r.model, error: r.error! }));
+        // Dedupe by model name
+        const seen = new Set<string>();
+        const uniqueErrors = errors.filter((e) => {
+          if (seen.has(e.model)) return false;
+          seen.add(e.model);
+          return true;
+        });
+        setServerErrors(uniqueErrors);
+
+        if (byModel.size > 0) {
+          toast.success(`${byModel.size} model(s) returned results`);
+        }
+      } catch (e: any) {
+        const msg = e?.response?.data?.detail || e?.message || 'Failed to reach keypoint server';
+        setRunError(msg);
+        toast.error('Keypoint server error');
+      } finally {
+        setIsRunning(false);
+      }
+    },
+    [selectedThermogram]
+  );
+
+  const claudeResults = modelResults.get('claude');
+  const hasResults = modelResults.size > 0;
 
   return (
     <div className="flex flex-col gap-6 p-4 lg:p-6">
       {/* Header + Patient ID input */}
       <div className="rounded-lg bg-white p-4 shadow-sm">
         <h1 className="text-xl font-semibold text-black">Automatic Keypoint Selection Demo</h1>
-        <p className="mt-1 text-sm text-gray-500">Enter a patient ID to load their scans, select a scan, then run automatic keypoint detection.</p>
+        <p className="mt-1 text-sm text-gray-500">
+          Load a patient, select a scan, then run keypoint detection models. The Python server at <code className="text-xs">localhost:8787</code> must be
+          running.
+        </p>
 
         <div className="mt-4 flex gap-2">
           <input
@@ -171,7 +304,7 @@ function AutoKeypointsPage() {
         </div>
 
         {patientLoading && <p className="mt-2 text-sm text-gray-400">Loading patient...</p>}
-        {patientError && <p className="mt-2 text-sm text-red-500">Patient not found or API error. Check the ID and try again.</p>}
+        {patientError && <p className="mt-2 text-sm text-red-500">Patient not found or API error.</p>}
         {patient && (
           <div className="mt-2 flex items-center gap-3 text-sm text-gray-600">
             <span className="font-medium text-black">{patient.patient_designation || activePatientId?.slice(0, 12)}</span>
@@ -181,15 +314,13 @@ function AutoKeypointsPage() {
         )}
       </div>
 
-      {/* Main content: scan grid + keypoint frame */}
       {scans.length > 0 && (
         <div className="flex flex-col gap-6 lg:flex-row">
           {/* Left: scan thumbnails */}
           <div className="w-full shrink-0 lg:w-[340px]">
             <div className="rounded-lg bg-white p-4 shadow-sm">
               <h3 className="text-lg font-semibold text-black">Scans</h3>
-              <p className="mt-1 text-xs text-gray-400">Click a scan to select it for keypoint detection</p>
-
+              <p className="mt-1 text-xs text-gray-400">Select a scan for keypoint detection</p>
               {scansLoading ? (
                 <div className="mt-3 grid grid-cols-2 gap-2">
                   {Array.from({ length: 4 }).map((_, i) => (
@@ -211,91 +342,137 @@ function AutoKeypointsPage() {
             </div>
           </div>
 
-          {/* Right: keypoint detection frame */}
-          <div className="flex-1">
-            <div className="rounded-lg bg-white p-4 shadow-sm">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-black">Keypoint Detection</h3>
-                {demoKeypoints.length > 0 && (
+          {/* Right: detection controls + results */}
+          <div className="flex flex-1 flex-col gap-4">
+            {/* Run controls */}
+            {selectedThermogram && (
+              <div className="rounded-lg bg-white p-4 shadow-sm">
+                <h3 className="text-lg font-semibold text-black">Run Models</h3>
+                <p className="mt-1 text-xs text-gray-400">
+                  Thermogram: {selectedThermogram.length} x {selectedThermogram[0]?.length} px | Scan: {selectedScan?.scan_id?.slice(0, 20)}...
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
                   <button
-                    onClick={() => setDemoKeypoints([])}
-                    className="cursor-pointer rounded-md border border-gray-300 px-3 py-1 text-xs text-gray-600 hover:bg-gray-50"
+                    onClick={() => handleRunModels(['geometric'])}
+                    disabled={isRunning}
+                    className="cursor-pointer rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                   >
-                    Clear
+                    Geometric Only
                   </button>
-                )}
-              </div>
-
-              {selectedThermogram ? (
-                <>
-                  {/* Thermogram with keypoint overlay */}
-                  <div className="mt-3 rounded bg-gray-900 p-2">
-                    {demoKeypoints.length > 0 ? (
-                      <KeypointOverlayCanvas thermogramData={selectedThermogram} keypoints={demoKeypoints} className="rounded" />
-                    ) : (
-                      <ThermogramHeatmap data={selectedThermogram} className="h-auto w-full rounded" />
-                    )}
-                  </div>
-
-                  {/* Legend */}
-                  {demoKeypoints.length > 0 && (
-                    <div className="mt-3">
-                      <KeypointLegend />
-                    </div>
+                  <button
+                    onClick={() => handleRunModels(['claude'])}
+                    disabled={isRunning}
+                    className="cursor-pointer rounded-md border border-blue-300 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+                  >
+                    Claude Vision Only
+                  </button>
+                  <button
+                    onClick={() => handleRunModels(['geometric', 'claude', 'ensemble'])}
+                    disabled={isRunning}
+                    className="cursor-pointer rounded-md bg-gray-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+                  >
+                    Run All Models
+                  </button>
+                  {hasResults && (
+                    <button
+                      onClick={() => {
+                        setModelResults(new Map());
+                        setServerErrors([]);
+                      }}
+                      className="cursor-pointer rounded-md border border-gray-300 px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-50"
+                    >
+                      Clear
+                    </button>
                   )}
-
-                  {/* Action area */}
-                  <div className="mt-4 rounded-md border border-dashed border-gray-300 bg-gray-50 p-4">
-                    <p className="text-center text-sm text-gray-500">
-                      {demoKeypoints.length > 0
-                        ? `${demoKeypoints.length} keypoints detected`
-                        : 'Automatic keypoint detection algorithm output will be displayed here.'}
-                    </p>
-                    <p className="mt-1 text-center text-xs text-gray-400">
-                      {demoKeypoints.length > 0
-                        ? 'Results shown as colored markers on the thermogram above.'
-                        : 'Connect your detection algorithm to populate this view.'}
-                    </p>
-
-                    {/* Placeholder button to simulate algorithm output */}
-                    {demoKeypoints.length === 0 && (
-                      <div className="mt-3 flex justify-center">
-                        <button
-                          onClick={() => {
-                            // Simulate algorithm output with plausible normalized coordinates
-                            setDemoKeypoints([
-                              { name: 'Hallux', left: { x: 0.45, y: 0.08 }, right: { x: 0.55, y: 0.09 } },
-                              { name: '1st Metatarsal Head', left: { x: 0.38, y: 0.22 }, right: { x: 0.62, y: 0.23 } },
-                              { name: '3rd Metatarsal Head', left: { x: 0.5, y: 0.25 }, right: { x: 0.5, y: 0.26 } },
-                              { name: '5th Metatarsal Head', left: { x: 0.62, y: 0.3 }, right: { x: 0.38, y: 0.31 } },
-                              { name: 'Arch', left: { x: 0.52, y: 0.52 }, right: { x: 0.48, y: 0.53 } },
-                              { name: 'Heel', left: { x: 0.5, y: 0.82 }, right: { x: 0.5, y: 0.83 } }
-                            ]);
-                          }}
-                          className="cursor-pointer rounded-md border border-gray-300 bg-white px-4 py-2 text-sm text-gray-600 hover:bg-gray-50"
-                        >
-                          Run Demo (simulated keypoints)
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Scan metadata */}
-                  <div className="mt-3 text-xs text-gray-400">
-                    Scan: {selectedScan?.scan_id} | {selectedThermogram.length} x {selectedThermogram[0]?.length} px
-                  </div>
-                </>
-              ) : (
-                <div className="mt-3 flex h-[400px] items-center justify-center rounded bg-gray-50">
-                  <p className="text-sm text-gray-400">Select a scan to view its thermogram</p>
                 </div>
-              )}
-            </div>
+
+                {isRunning && (
+                  <div className="mt-3 flex items-center gap-2 text-sm text-gray-500">
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-400 border-t-transparent" />
+                    Running models... Claude Vision may take 5-15 seconds.
+                  </div>
+                )}
+                {runError && <p className="mt-2 text-sm text-red-500">{runError}</p>}
+                {serverErrors.map((e) => (
+                  <p key={e.model} className="mt-1 text-xs text-amber-600">
+                    {e.model}: {e.error}
+                  </p>
+                ))}
+              </div>
+            )}
+
+            {/* Claude Vision — featured large */}
+            {claudeResults && selectedThermogram && (
+              <div className="rounded-lg border-2 border-blue-400 bg-white p-4 shadow-sm ring-2 ring-blue-100">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-lg font-semibold text-black">
+                      Claude Vision Results <span className="ml-2 rounded bg-blue-100 px-1.5 py-0.5 text-xs text-blue-700">primary</span>
+                    </h3>
+                    <p className="text-xs text-gray-400">Few-shot prompting with Claude Opus 4.6 — keypoints predicted directly from the thermogram image</p>
+                  </div>
+                  <span className="text-sm text-gray-500">{claudeResults.filter((kp) => kp.left || kp.right).length}/6 keypoints</span>
+                </div>
+                <div className="mt-3 rounded bg-gray-900 p-2">
+                  <KeypointOverlayCanvas thermogramData={selectedThermogram} keypoints={claudeResults} />
+                </div>
+                <div className="mt-3">
+                  <KeypointLegend />
+                </div>
+                {/* Coordinate table */}
+                <div className="mt-3 overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b text-gray-500">
+                        <th className="pb-1 pr-4">Keypoint</th>
+                        <th className="pb-1 pr-4">Left (x, y)</th>
+                        <th className="pb-1">Right (x, y)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {claudeResults.map((kp) => (
+                        <tr key={kp.name} className="border-b border-gray-50">
+                          <td className="py-1 pr-4 font-medium text-gray-700">{kp.name}</td>
+                          <td className="py-1 pr-4 font-mono text-gray-600">{kp.left ? `(${kp.left.x.toFixed(3)}, ${kp.left.y.toFixed(3)})` : '—'}</td>
+                          <td className="py-1 font-mono text-gray-600">{kp.right ? `(${kp.right.x.toFixed(3)}, ${kp.right.y.toFixed(3)})` : '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Other models — smaller cards in a grid */}
+            {hasResults && selectedThermogram && (
+              <div className="grid gap-4 md:grid-cols-2">
+                {Array.from(modelResults.entries())
+                  .filter(([name]) => name !== 'claude')
+                  .map(([name, keypoints]) => (
+                    <ModelCard key={name} modelName={name} keypoints={keypoints} thermogramData={selectedThermogram} />
+                  ))}
+              </div>
+            )}
+
+            {/* Empty state */}
+            {!hasResults && selectedThermogram && !isRunning && (
+              <div className="rounded-lg bg-white p-4 shadow-sm">
+                <div className="rounded bg-gray-900 p-2">
+                  <ThermogramHeatmap data={selectedThermogram} className="h-auto w-full rounded" />
+                </div>
+                <p className="mt-3 text-center text-sm text-gray-400">Select a model above to run keypoint detection on this thermogram.</p>
+              </div>
+            )}
+
+            {!selectedThermogram && (
+              <div className="flex h-[400px] items-center justify-center rounded-lg bg-white shadow-sm">
+                <p className="text-sm text-gray-400">Select a scan to view its thermogram</p>
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      {/* Empty state when no patient loaded */}
       {!activePatientId && (
         <div className="rounded-lg bg-white p-8 text-center shadow-sm">
           <p className="text-gray-400">Enter a patient ID above to get started.</p>

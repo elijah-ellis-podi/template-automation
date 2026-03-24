@@ -1,0 +1,24 @@
+{
+  "patient_id": "ca8bc42b9d62651b9e742e9572ee12b1",
+  "last_name": "DB-7945",
+  "serial_number": "212-250204-0535",
+  "device_id": "212-250204-0535",
+  "first_name": "",
+  "mismatch_count": 0.0,
+  "person_url": "https://app.podimetrics.com/api/v1/people/ca8bc42b9d62651b9e742e9572ee12b1",
+  "scans_url": "https://app.podimetrics.com/api/v1/patients/ca8bc42b9d62651b9e742e9572ee12b1/scans",
+  "notifications_url": "https://app.podimetrics.com/api/v1/patients/ca8bc42b9d62651b9e742e9572ee12b1/notifications",
+  "when_last_used": "2026-03-23T00:05:56",
+  "current_ulceration_risk": null,
+  "current_temperature_asymmetry": 3.2374483923935813,
+  "current_adherence": 5.4,
+  "template_id": "G4nJXCfs8iMHDuMSL2C3nd",
+  "template_type": null,
+  "affiliations": [
+    "VA Lexington"
+  ],
+  "customer": "VA",
+  "date_assigned": "2024-11-29T20:15:22.213416+00:00",
+  "patient_designation": "DB-7945",
+  "site": "Lexington"
+}

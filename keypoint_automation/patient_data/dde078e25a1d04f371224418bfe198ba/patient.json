@@ -1,0 +1,24 @@
+{
+  "patient_id": "dde078e25a1d04f371224418bfe198ba",
+  "last_name": "GM-7680",
+  "serial_number": "213-250604-0221",
+  "device_id": "213-250604-0221",
+  "first_name": "",
+  "mismatch_count": 0.0,
+  "person_url": "https://app.podimetrics.com/api/v1/people/dde078e25a1d04f371224418bfe198ba",
+  "scans_url": "https://app.podimetrics.com/api/v1/patients/dde078e25a1d04f371224418bfe198ba/scans",
+  "notifications_url": "https://app.podimetrics.com/api/v1/patients/dde078e25a1d04f371224418bfe198ba/notifications",
+  "when_last_used": "2026-03-22T22:39:22",
+  "current_ulceration_risk": null,
+  "current_temperature_asymmetry": 5.1742771992726695,
+  "current_adherence": 5.9,
+  "template_id": "daFkyuYJFnDCgC9Kumrr7X",
+  "template_type": null,
+  "affiliations": [
+    "VA Danville"
+  ],
+  "customer": "VA",
+  "date_assigned": "2024-11-29T20:14:49.843275+00:00",
+  "patient_designation": "GM-7680",
+  "site": "Danville"
+}

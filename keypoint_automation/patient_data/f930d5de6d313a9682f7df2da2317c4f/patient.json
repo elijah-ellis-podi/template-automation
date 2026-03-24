@@ -1,0 +1,24 @@
+{
+  "patient_id": "f930d5de6d313a9682f7df2da2317c4f",
+  "last_name": "VA-5046",
+  "serial_number": "213-250716-0239",
+  "device_id": "213-250716-0239",
+  "first_name": "",
+  "mismatch_count": 0.0,
+  "person_url": "https://app.podimetrics.com/api/v1/people/f930d5de6d313a9682f7df2da2317c4f",
+  "scans_url": "https://app.podimetrics.com/api/v1/patients/f930d5de6d313a9682f7df2da2317c4f/scans",
+  "notifications_url": "https://app.podimetrics.com/api/v1/patients/f930d5de6d313a9682f7df2da2317c4f/notifications",
+  "when_last_used": "2026-03-22T15:03:50",
+  "current_ulceration_risk": null,
+  "current_temperature_asymmetry": 2.39752400308166,
+  "current_adherence": 6.1,
+  "template_id": "QNkRVz4wXC8zvNodFzBQgg",
+  "template_type": null,
+  "affiliations": [
+    "VA Honolulu"
+  ],
+  "customer": "VA",
+  "date_assigned": "2024-11-29T20:13:11.286098+00:00",
+  "patient_designation": "VA-5046",
+  "site": "Honolulu"
+}

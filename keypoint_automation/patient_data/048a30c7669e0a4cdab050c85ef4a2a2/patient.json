@@ -1,0 +1,24 @@
+{
+  "patient_id": "048a30c7669e0a4cdab050c85ef4a2a2",
+  "last_name": "MT-3072",
+  "serial_number": "213-250106-0056",
+  "device_id": "213-250106-0056",
+  "first_name": "",
+  "mismatch_count": 0.0,
+  "person_url": "https://app.podimetrics.com/api/v1/people/048a30c7669e0a4cdab050c85ef4a2a2",
+  "scans_url": "https://app.podimetrics.com/api/v1/patients/048a30c7669e0a4cdab050c85ef4a2a2/scans",
+  "notifications_url": "https://app.podimetrics.com/api/v1/patients/048a30c7669e0a4cdab050c85ef4a2a2/notifications",
+  "when_last_used": "2026-03-22T23:31:15",
+  "current_ulceration_risk": null,
+  "current_temperature_asymmetry": 5.139806117857685,
+  "current_adherence": 5.4,
+  "template_id": "kZLav7RJj2CSAQNiubMuBE",
+  "template_type": null,
+  "affiliations": [
+    "VA Northport"
+  ],
+  "customer": "VA",
+  "date_assigned": "2024-11-29T20:20:58.673235+00:00",
+  "patient_designation": "MT-3072",
+  "site": "Northport"
+}

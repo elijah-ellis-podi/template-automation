@@ -1,0 +1,60 @@
+{
+  "scan": {
+    "scan_subtype": null,
+    "when_scan_completed_local": "2026-03-17T01:49:21-04:00",
+    "device_id": "213-250604-0215",
+    "template_mismatch": false,
+    "battery_voltage": 4.04,
+    "microcontroller_firmware_version": 34.0,
+    "amplifier_voltage": null,
+    "force_sensor_left": [
+      0.0
+    ],
+    "ambient_temperature": null,
+    "scan_status": "success",
+    "mdn": "5299674950",
+    "when_transmission_received": "2026-03-17T05:49:41.409000",
+    "scan_median": null,
+    "scan_mean": null,
+    "force_sensor_right": [
+      0.0
+    ],
+    "patient_id": "1b249207626eef8c2bf8659b751d1fc3",
+    "created_at": "2026-03-17T05:49:59.056408+00:00",
+    "signal_strength": 28.0,
+    "scan_min": null,
+    "scan_type": "diagnostic",
+    "force_sensor": [
+      0.0
+    ],
+    "when_completed": "2026-03-17T05:49:21+00:00",
+    "updated_at": "2026-03-17T05:50:00.247060",
+    "scan_stddev": null,
+    "schema_id": 4104.0,
+    "bridge_voltage": null,
+    "imei": null,
+    "when_scan_completed": "2026-03-17T05:49:21+00:00",
+    "scan_duration": null,
+    "scan_id": "20260317054941409RdJ4yJj2AGCyy",
+    "utc_offset": -14400.0,
+    "scan_measurements_when": [
+      95.0
+    ],
+    "bootloadable_hash": "e8830c118e972e33397153428d4aaea7",
+    "patient_designation": "WF-5269",
+    "template_id": null,
+    "device_url": "https://app.podimetrics.com/api/v1/devices/213-250604-0215",
+    "mat_thermogram_url": null,
+    "raw_thermogram_url": "https://app.podimetrics.com/api/v1/thermograms/20260317054941409RdJ4yJj2AGCyy/raw",
+    "feet_thermogram_url": null,
+    "template_masks_url": null,
+    "template_keypoints_url": null,
+    "ipsilateral_temperature_range": {},
+    "temperature_asymmetry": {},
+    "foot_present": {},
+    "left_footness": null,
+    "right_footness": null,
+    "is_elevated_scan": null,
+    "elevated_temperature_threshold": null
+  }
+}
