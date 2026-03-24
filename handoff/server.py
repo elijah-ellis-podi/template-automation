@@ -20,6 +20,7 @@ Usage
   uvicorn server:app --port 8787 --reload
 """
 
+import json
 import logging
 import sys
 import pathlib
@@ -249,4 +250,120 @@ async def health():
         'version': '2.0.0',
         'models': list(MODELS),
         'keypoint_names': list(KEYPOINT_NAMES),
+        'patients': len(list(PATIENT_DATA_DIR.iterdir())) if PATIENT_DATA_DIR.exists() else 0,
     }
+
+
+# ══════════════════════════════════════════════════════════════
+# Patient & scan data from filesystem (patient_scan_data/)
+# ══════════════════════════════════════════════════════════════
+
+PATIENT_DATA_DIR = pathlib.Path(__file__).parent.parent / 'patient_scan_data'
+
+
+@app.get('/patients')
+async def list_patients():
+    """List all patients from the local patient_scan_data directory."""
+    if not PATIENT_DATA_DIR.exists():
+        raise HTTPException(500, f'patient_scan_data directory not found at {PATIENT_DATA_DIR}')
+
+    patients = []
+    for d in sorted(PATIENT_DATA_DIR.iterdir()):
+        if not d.is_dir():
+            continue
+        patient_json = d / 'patient.json'
+        if patient_json.exists():
+            with open(patient_json) as f:
+                p = json.load(f)
+            # Count scans
+            scans_dir = d / 'scans'
+            n_scans = len(list(scans_dir.glob('*_mat.json'))) if scans_dir.exists() else 0
+            patients.append({
+                'patient_id': p.get('patient_id', d.name),
+                'patient_designation': p.get('patient_designation') or p.get('last_name', d.name),
+                'n_scans': n_scans,
+                'has_template': (d / 'template' / 'feet.json').exists(),
+            })
+        else:
+            patients.append({
+                'patient_id': d.name,
+                'patient_designation': d.name[:12],
+                'n_scans': 0,
+                'has_template': False,
+            })
+
+    return {'patients': patients}
+
+
+@app.get('/patients/{patient_id}')
+async def get_patient(patient_id: str):
+    """Get a single patient's info."""
+    patient_dir = PATIENT_DATA_DIR / patient_id
+    if not patient_dir.exists():
+        raise HTTPException(404, f'Patient {patient_id} not found')
+
+    patient_json = patient_dir / 'patient.json'
+    if patient_json.exists():
+        with open(patient_json) as f:
+            p = json.load(f)
+    else:
+        p = {'patient_id': patient_id}
+
+    scans_dir = patient_dir / 'scans'
+    n_scans = len(list(scans_dir.glob('*_mat.json'))) if scans_dir.exists() else 0
+
+    return {
+        'patient_id': p.get('patient_id', patient_id),
+        'patient_designation': p.get('patient_designation') or p.get('last_name', patient_id[:12]),
+        'n_scans': n_scans,
+        'has_template': (patient_dir / 'template' / 'feet.json').exists(),
+    }
+
+
+@app.get('/patients/{patient_id}/scans')
+async def get_patient_scans(patient_id: str, max_scans: int = 15):
+    """
+    Return the most recent scans with their thermograms inline.
+    This replaces two PADS API calls (scan list + thermogram fetch) in one response.
+    """
+    scans_dir = PATIENT_DATA_DIR / patient_id / 'scans'
+    if not scans_dir.exists():
+        return {'scans': []}
+
+    # Pair scan + mat files, sorted newest first (filename starts with timestamp)
+    mat_files = sorted(scans_dir.glob('*_mat.json'), reverse=True)
+
+    scans = []
+    for mat_file in mat_files[:max_scans]:
+        prefix = mat_file.name.replace('_mat.json', '')
+        scan_file = scans_dir / f'{prefix}_scan.json'
+
+        # Load thermogram
+        try:
+            with open(mat_file) as f:
+                mat_data = json.load(f)
+            thermogram = mat_data.get('thermogram')
+            if thermogram is None:
+                continue
+        except Exception:
+            continue
+
+        # Load scan metadata (optional)
+        scan_meta = {}
+        if scan_file.exists():
+            try:
+                with open(scan_file) as f:
+                    raw = json.load(f)
+                scan_meta = raw.get('scan', raw)
+            except Exception:
+                pass
+
+        scans.append({
+            'scan_id': scan_meta.get('scan_id', prefix),
+            'when_scan_completed': scan_meta.get('when_scan_completed', ''),
+            'scan_status': scan_meta.get('scan_status'),
+            'thermogram': thermogram,
+        })
+
+    log.info(f'  /patients/{patient_id}/scans: {len(scans)} scans loaded')
+    return {'scans': scans}
