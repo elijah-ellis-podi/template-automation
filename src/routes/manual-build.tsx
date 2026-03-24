@@ -151,12 +151,12 @@ function ManualBuildPage() {
       const patient = await fetchPatient(patientId);
       setBuildStatus(`Patient ${patient.patient_designation || patientId.slice(0, 12)} — loading scans...`);
 
-      // Fetch ground truth keypoints if patient has a template
-      if (patient.template_id) {
-        fetchGroundTruthKeypoints(patient.template_id)
-          .then((gt) => setGroundTruth(groundTruthToOverlay(gt)))
-          .catch(() => {}); // non-blocking — ground truth is optional
-      }
+      // Ground truth fetch disabled for demo
+      // if (patient.template_id) {
+      //   fetchGroundTruthKeypoints(patient.template_id)
+      //     .then((gt) => setGroundTruth(groundTruthToOverlay(gt)))
+      //     .catch(() => {});
+      // }
 
       // 2. Fetch scans (up to 15 most recent with thermograms)
       const scans = await fetchScans(patient.scans_url);
@@ -287,11 +287,6 @@ function ManualBuildPage() {
                       coordMode="single"
                     />
                   </div>
-                  {buildResponse.right_validation && (
-                    <p className={cn('mt-1 text-center text-xs', buildResponse.right_validation.overall_score >= 0.9 ? 'text-green-600' : 'text-amber-600')}>
-                      Validation: {(buildResponse.right_validation.overall_score * 100).toFixed(0)}%
-                    </p>
-                  )}
                 </div>
               )}
               {buildResponse.left_template && (
@@ -306,11 +301,6 @@ function ManualBuildPage() {
                       coordMode="single"
                     />
                   </div>
-                  {buildResponse.left_validation && (
-                    <p className={cn('mt-1 text-center text-xs', buildResponse.left_validation.overall_score >= 0.9 ? 'text-green-600' : 'text-amber-600')}>
-                      Validation: {(buildResponse.left_validation.overall_score * 100).toFixed(0)}%
-                    </p>
-                  )}
                 </div>
               )}
             </div>
