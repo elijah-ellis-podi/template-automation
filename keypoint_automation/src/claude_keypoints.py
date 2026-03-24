@@ -62,7 +62,7 @@ Return ONLY a valid JSON object (no markdown fences) with this exact schema:
 x = 0.0 is the LEFT edge of the image, x = 1.0 is the RIGHT edge.
 y = 0.0 is the TOP  of the image (toes), y = 1.0 is the BOTTOM (heel).
 All values must be between 0.0 and 1.0.
-"""
+# """
 # SYSTEM_PROMPT = """You are an expert medical imaging analyst specializing in podiatric thermography.
 
 # You will be shown a foot thermogram template image. Your task is to:

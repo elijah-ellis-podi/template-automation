@@ -47,11 +47,9 @@ async function fetchScans(scansUrl: string): Promise<Array<BrannockScan>> {
   const today = new Date().toISOString().split('T')[0];
   const url = `${scansUrl}?scan_type=user&start_date=2024-10-01&end_date=${today}`;
   const res = await podiAxios<{ scans: Array<BrannockScan> }>(url, { headers: getAuthHeader() });
-  return res.scans.filter((s) => {
-    if (!s.mat_thermogram_url) return false;
-    const schemaId = s.schema_id != null ? Math.round(Number(s.schema_id)) : null;
-    return schemaId !== 9;
-  });
+  // Only filter: must have a mat_thermogram_url. No schema_id filter —
+  // the auto-keypoints demo works with both classic and SmartMat+ scans.
+  return res.scans.filter((s) => !!s.mat_thermogram_url);
 }
 
 async function fetchThermogram(matThermogramUrl: string): Promise<Array<Array<number>>> {
@@ -410,7 +408,7 @@ function AutoKeypointsPage() {
                 {/* Existing algorithm scores from PADS */}
               {scanMeta && (
                 <div className="mt-2 flex flex-wrap items-center gap-3 rounded-md bg-gray-50 px-3 py-2 text-xs">
-                  <span className="font-medium text-gray-500">Production PADS footness</span>
+                  <span className="font-medium text-gray-500">Production PADS:</span>
                   <span className={scanMeta.template_mismatch ? 'text-red-600' : 'text-green-600'}>
                     Template match: {scanMeta.template_mismatch ? 'MISMATCH' : 'OK'}
                   </span>

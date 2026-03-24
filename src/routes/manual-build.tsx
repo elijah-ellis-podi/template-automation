@@ -1,21 +1,24 @@
-import { BuildControls } from '@/components/brannock/BuildControls';
-import { FootSideControls } from '@/components/brannock/FootSideControls';
-import { KeypointSelector } from '@/components/brannock/KeypointSelector';
-import { PatientSelector } from '@/components/brannock/PatientSelector';
-import { SaveTemplateButton } from '@/components/brannock/SaveTemplateButton';
-import { ScanSelector } from '@/components/brannock/ScanSelector';
-import { TemplateCanvas } from '@/components/brannock/TemplateCanvas';
-import { ThresholdSliders } from '@/components/brannock/ThresholdSliders';
-import type { BrannockPatient, BrannockScan, KeypointLocation, KeypointName, TemplateBuildResponse, TemplateMode } from '@/schemas/brannock';
+import { KeypointLegend, KeypointOverlayCanvas, type KeypointResult } from '@/components/brannock/KeypointOverlayCanvas';
+import { ThermogramHeatmap } from '@/components/brannock/ThermogramHeatmap';
+import type { BrannockScan, KeypointLocation, KeypointName } from '@/schemas/brannock';
 import { KEYPOINT_NAMES } from '@/schemas/brannock';
-import { getLogoutRedirectOptions } from '@/services/auth';
-import { buildTemplate } from '@/services/brannock';
+import { getAuthHeader, getLogoutRedirectOptions } from '@/services/auth';
+import { cn } from '@/utils/classes';
+import { podiAxios } from '@/utils/api';
 import { ENV, STORAGE_KEYS } from '@/utils/constants';
-import { useMutation } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router';
-import { useCallback, useState } from 'react';
+import { type FC, useCallback, useState } from 'react';
 import toast from 'react-hot-toast';
+import axios from 'axios';
 import { z } from 'zod';
+
+const PADS_API = ENV.DEV_API_BASE_URL;
+
+// Template build backend — to be implemented.
+// This service accepts scan thermograms and returns a built template + auto-placed keypoints.
+// See BUILD_BACKEND_SPEC.md for the contract.
+const BUILD_SERVER = 'http://localhost:8787';
 
 const BrannockSearchSchema = z.object({
   patientId: z.string().optional()
@@ -29,279 +32,452 @@ export const Route = createFileRoute('/manual-build')({
       throw redirect(getLogoutRedirectOptions(location));
     }
   },
-  component: BrannockPage
+  component: ManualBuildPage
 });
 
-// ── Empty keypoints initializer ──
-function createEmptyKeypoints(): Record<KeypointName, KeypointLocation> {
-  const kps = {} as Record<KeypointName, KeypointLocation>;
-  for (const name of KEYPOINT_NAMES) {
-    kps[name] = { left_normalized_coordinate: null, right_normalized_coordinate: null };
-  }
-  return kps;
+// ── PADS API calls ───────────────────────────────────────────
+interface PatientInfo {
+  patient_id: string;
+  patient_designation?: string;
+  scans_url: string;
+  template_id?: string | null;
+  template_type?: string | null;
 }
 
-function BrannockPage() {
-  const { patientId } = Route.useSearch();
+async function fetchPatient(patientId: string): Promise<PatientInfo> {
+  const res = await podiAxios<{ patient: PatientInfo }>(`${PADS_API}/patients/${patientId}`, { headers: getAuthHeader() });
+  return res.patient;
+}
+
+async function fetchScans(scansUrl: string): Promise<Array<BrannockScan>> {
+  const today = new Date().toISOString().split('T')[0];
+  const url = `${scansUrl}?scan_type=user&start_date=2024-10-01&end_date=${today}`;
+  const res = await podiAxios<{ scans: Array<BrannockScan> }>(url, { headers: getAuthHeader() });
+  return res.scans.filter((s) => !!s.mat_thermogram_url);
+}
+
+async function fetchThermogram(matThermogramUrl: string): Promise<Array<Array<number>>> {
+  const res = await podiAxios<{ thermogram: Array<Array<number>> }>(`${matThermogramUrl}?decimals=2`, { headers: getAuthHeader() });
+  return res.thermogram;
+}
+
+// ── Build backend types ──────────────────────────────────────
+// This is the contract the build backend must fulfill.
+// See BUILD_BACKEND_SPEC.md for full specification.
+
+interface BuildRequest {
+  patient_id: string;
+  scan_ids: Array<string>;
+  thermograms: Array<{ scan_id: string; thermogram: Array<Array<number>> }>;
+}
+
+interface BuildKeypoint {
+  name: string;
+  x: number | null;
+  y: number | null;
+  confidence: number | null;
+}
+
+interface BuildResponse {
+  left_template: Array<Array<number>> | null;
+  right_template: Array<Array<number>> | null;
+  left_keypoints: Array<BuildKeypoint> | null;
+  right_keypoints: Array<BuildKeypoint> | null;
+  foot_count: 'single' | 'pair';
+  detected_feet: Array<'left' | 'right'>;
+  quality_score: number;
+  earliest_scan_id: string;
+}
+
+// Convert build response keypoints to the overlay display format
+function buildKeypointsToOverlay(response: BuildResponse): Array<KeypointResult> {
+  return KEYPOINT_NAMES.map((name) => {
+    const left = response.left_keypoints?.find((k) => k.name === name);
+    const right = response.right_keypoints?.find((k) => k.name === name);
+    return {
+      name,
+      left: left?.x != null && left?.y != null ? { x: left.x, y: left.y } : undefined,
+      right: right?.x != null && right?.y != null ? { x: right.x, y: right.y } : undefined,
+      leftConfidence: left?.confidence ?? null,
+      rightConfidence: right?.confidence ?? null
+    };
+  });
+}
+
+// ── Scan thumbnail ───────────────────────────────────────────
+const ScanThumbnail: FC<{
+  scan: BrannockScan;
+  isSelected: boolean;
+  onToggle: () => void;
+}> = ({ scan, isSelected, onToggle }) => {
+  const { data: thermogram, isLoading } = useQuery({
+    queryKey: ['brannock-thermogram', scan.mat_thermogram_url],
+    queryFn: () => fetchThermogram(scan.mat_thermogram_url!),
+    staleTime: Infinity,
+    enabled: !!scan.mat_thermogram_url
+  });
+  const dateLabel = scan.when_scan_completed.slice(0, 16).replace('T', ' ');
+  return (
+    <div
+      onClick={onToggle}
+      className={cn(
+        'cursor-pointer rounded-lg border-2 p-1.5 transition-colors',
+        isSelected ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white hover:border-gray-300'
+      )}
+    >
+      <div className="aspect-[205/140] w-full overflow-hidden rounded bg-gray-900">
+        {isLoading ? (
+          <div className="flex h-full items-center justify-center">
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-400 border-t-transparent" />
+          </div>
+        ) : thermogram ? (
+          <ThermogramHeatmap data={thermogram} className="h-full w-full object-contain" />
+        ) : (
+          <div className="flex h-full items-center justify-center text-xs text-gray-500">No data</div>
+        )}
+      </div>
+      <div className="mt-1 flex items-center justify-between px-0.5">
+        <span className="font-mono text-xs text-gray-600">{dateLabel}</span>
+        {isSelected && <span className="text-xs text-blue-600">selected</span>}
+      </div>
+    </div>
+  );
+};
+
+// ── Main page ────────────────────────────────────────────────
+function ManualBuildPage() {
+  const { patientId: urlPatientId } = Route.useSearch();
   const navigate = useNavigate();
 
-  // ── Patient state ──────────────────────────────────────────
-  const [selectedPatient, setSelectedPatient] = useState<BrannockPatient | null>(null);
+  // Patient input
+  const [inputValue, setInputValue] = useState(urlPatientId ?? '');
+  const [activePatientId, setActivePatientId] = useState<string | null>(urlPatientId ?? null);
 
-  // ── Scan state ─────────────────────────────────────────────
+  // Selected scans for build
   const [selectedScanIds, setSelectedScanIds] = useState<Set<string>>(new Set());
-  const [previewScan, setPreviewScan] = useState<BrannockScan | null>(null);
 
-  // ── Build state ────────────────────────────────────────────
-  const [templateMode, setTemplateMode] = useState<TemplateMode | null>(null);
-  const [buildResult, setBuildResult] = useState<TemplateBuildResponse | null>(null);
-  const [leftTemplate, setLeftTemplate] = useState<Array<Array<number>> | null>(null);
-  const [rightTemplate, setRightTemplate] = useState<Array<Array<number>> | null>(null);
-  const [footSide, setFootSide] = useState<number | null>(null);
-  const [leftThreshold, setLeftThreshold] = useState(0.4);
-  const [rightThreshold, setRightThreshold] = useState(0.4);
+  // Build state
+  const [buildResponse, setBuildResponse] = useState<BuildResponse | null>(null);
+  const [buildKeypoints, setBuildKeypoints] = useState<Array<KeypointResult>>([]);
+  const [isBuilding, setIsBuilding] = useState(false);
+  const [buildError, setBuildError] = useState<string | null>(null);
 
-  // ── Keypoint state ─────────────────────────────────────────
-  const [keypoints, setKeypoints] = useState<Record<KeypointName, KeypointLocation>>(createEmptyKeypoints);
-  const [activeKeypoint, setActiveKeypoint] = useState<KeypointName>('Hallux');
-
-  // ── Build mutation ─────────────────────────────────────────
-  const buildMutation = useMutation({
-    mutationFn: buildTemplate,
-    onSuccess: (result: TemplateBuildResponse) => {
-      setBuildResult(result);
-      setLeftTemplate(result.left_foot);
-      setRightTemplate(result.right_foot);
-      setFootSide(result.foot_side);
-      setLeftThreshold(result.left_threshold);
-      setRightThreshold(result.right_threshold);
-      setKeypoints(createEmptyKeypoints());
-      setActiveKeypoint('Hallux');
-      toast.success('Template built successfully');
-    },
-    onError: () => {
-      toast.error('Failed to build template');
-    }
+  // ── Queries ────────────────────────────────────────────────
+  const { data: patient, isLoading: patientLoading, isError: patientError } = useQuery({
+    queryKey: ['manual-build-patient', activePatientId],
+    queryFn: () => fetchPatient(activePatientId!),
+    enabled: !!activePatientId
   });
 
-  // ── Derived state ──────────────────────────────────────────
-  const footConfig: 'bilateral' | 'left_only' | 'right_only' =
-    leftTemplate && rightTemplate ? 'bilateral' : leftTemplate ? 'left_only' : rightTemplate ? 'right_only' : 'bilateral';
-
-  const hasTemplate = leftTemplate !== null || rightTemplate !== null;
-  const showFootSideControls = hasTemplate && footSide !== null && templateMode === 'auto';
-  const showThresholdSliders = hasTemplate && templateMode === 'manual';
+  const { data: scans = [], isLoading: scansLoading } = useQuery({
+    queryKey: ['manual-build-scans', activePatientId],
+    queryFn: () => fetchScans(patient!.scans_url),
+    enabled: !!patient?.scans_url
+  });
 
   // ── Handlers ───────────────────────────────────────────────
-  const clearBuildState = useCallback(() => {
-    setTemplateMode(null);
-    setBuildResult(null);
-    setLeftTemplate(null);
-    setRightTemplate(null);
-    setFootSide(null);
-    setLeftThreshold(0.4);
-    setRightThreshold(0.4);
-    setKeypoints(createEmptyKeypoints());
-    setActiveKeypoint('Hallux');
-  }, []);
-
-  const handlePatientChange = useCallback(
-    (patient: BrannockPatient | null) => {
-      setSelectedPatient(patient);
+  const handleLoadPatient = useCallback(() => {
+    const trimmed = inputValue.trim();
+    if (trimmed) {
+      setActivePatientId(trimmed);
       setSelectedScanIds(new Set());
-      setPreviewScan(null);
-      clearBuildState();
-      navigate({ search: (prev) => ({ ...prev, patientId: patient?.patient_id }) });
-    },
-    [navigate, clearBuildState]
-  );
+      setBuildResponse(null);
+      setBuildKeypoints([]);
+      setBuildError(null);
+      navigate({ search: { patientId: trimmed } });
+    }
+  }, [inputValue, navigate]);
 
-  const handlePreviewScanChange = useCallback((scan: BrannockScan | null) => {
-    setPreviewScan(scan);
+  const toggleScan = useCallback((scanId: string) => {
+    setSelectedScanIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(scanId)) {
+        next.delete(scanId);
+      } else {
+        next.add(scanId);
+      }
+      return next;
+    });
   }, []);
 
-  const handleAutoBuild = useCallback(() => {
-    if (!selectedPatient) return;
-    setTemplateMode('auto');
-    clearBuildState();
-    const scanIds = selectedScanIds.size > 0 ? Array.from(selectedScanIds) : [];
-    buildMutation.mutate({ patient_id: selectedPatient.patient_id, scan_ids: scanIds, mode: 'auto' });
-  }, [selectedPatient, selectedScanIds, buildMutation, clearBuildState]);
+  const selectAllScans = useCallback(() => {
+    setSelectedScanIds(new Set(scans.map((s) => s.scan_id)));
+  }, [scans]);
 
-  const handleManualBuild = useCallback(() => {
-    if (!selectedPatient || selectedScanIds.size < 4) return;
-    setTemplateMode('manual');
-    clearBuildState();
-    buildMutation.mutate({ patient_id: selectedPatient.patient_id, scan_ids: Array.from(selectedScanIds), mode: 'manual' });
-  }, [selectedPatient, selectedScanIds, buildMutation, clearBuildState]);
+  const clearSelection = useCallback(() => {
+    setSelectedScanIds(new Set());
+  }, []);
 
-  const handleKeypointPlace = useCallback(
-    (side: 'left' | 'right', coordinate: { x: number; y: number }) => {
-      setKeypoints((prev) => {
-        const updated = { ...prev };
-        const current = { ...updated[activeKeypoint] };
-        if (side === 'left') {
-          current.left_normalized_coordinate = coordinate;
-        } else {
-          current.right_normalized_coordinate = coordinate;
-        }
-        updated[activeKeypoint] = current;
-        return updated;
+  const handleBuild = useCallback(async () => {
+    if (!patient || selectedScanIds.size === 0) return;
+
+    setIsBuilding(true);
+    setBuildError(null);
+    setBuildResponse(null);
+    setBuildKeypoints([]);
+
+    try {
+      // Fetch all selected thermograms
+      const selectedScans = scans.filter((s) => selectedScanIds.has(s.scan_id));
+      const thermogramPromises = selectedScans.map(async (scan) => {
+        const thermogram = await fetchThermogram(scan.mat_thermogram_url!);
+        return { scan_id: scan.scan_id, thermogram };
       });
+      const thermograms = await Promise.all(thermogramPromises);
 
-      // Auto-advance to the next unplaced keypoint
-      const currentIdx = KEYPOINT_NAMES.indexOf(activeKeypoint);
-      for (let offset = 1; offset <= KEYPOINT_NAMES.length; offset++) {
-        const nextIdx = (currentIdx + offset) % KEYPOINT_NAMES.length;
-        const nextName = KEYPOINT_NAMES[nextIdx];
-        const nextKp = keypoints[nextName];
-        const needsLeft = (footConfig === 'bilateral' || footConfig === 'left_only') && !nextKp.left_normalized_coordinate;
-        const needsRight = (footConfig === 'bilateral' || footConfig === 'right_only') && !nextKp.right_normalized_coordinate;
-        if (needsLeft || needsRight) {
-          setActiveKeypoint(nextName);
-          break;
-        }
-      }
-    },
-    [activeKeypoint, keypoints, footConfig]
-  );
+      toast.success(`Loaded ${thermograms.length} thermograms, sending to build server...`);
 
-  const handleChangeFootSide = useCallback(() => {
-    if (footSide === null) return;
-    const newSide = footSide === 1 ? 0 : 1;
-    setFootSide(newSide);
-    const activeTemplate = leftTemplate ?? rightTemplate;
-    if (newSide === 1) {
-      setLeftTemplate(activeTemplate);
-      setRightTemplate(null);
-    } else {
-      setRightTemplate(activeTemplate);
-      setLeftTemplate(null);
+      // POST to build backend
+      const res = await axios.post<BuildResponse>(`${BUILD_SERVER}/build-template`, {
+        patient_id: patient.patient_id,
+        scan_ids: Array.from(selectedScanIds),
+        thermograms
+      } as BuildRequest);
+
+      setBuildResponse(res.data);
+      setBuildKeypoints(buildKeypointsToOverlay(res.data));
+      toast.success('Template built with auto-placed keypoints');
+    } catch (e: any) {
+      const msg = e?.response?.data?.detail || e?.message || 'Build server unreachable';
+      setBuildError(msg);
+      toast.error('Build failed');
+    } finally {
+      setIsBuilding(false);
     }
-    setKeypoints(createEmptyKeypoints());
-  }, [footSide, leftTemplate, rightTemplate]);
+  }, [patient, selectedScanIds, scans]);
 
-  const handleRotate = useCallback(() => {
-    const rotate180 = (arr: Array<Array<number>>): Array<Array<number>> => arr.slice().reverse().map((row) => row.slice().reverse());
-    if (footSide === 1 && leftTemplate) {
-      setLeftTemplate(rotate180(leftTemplate));
-    } else if (footSide === 0 && rightTemplate) {
-      setRightTemplate(rotate180(rightTemplate));
-    }
-    setKeypoints(createEmptyKeypoints());
-  }, [footSide, leftTemplate, rightTemplate]);
-
-  const handleSaveSuccess = useCallback(() => {
-    clearBuildState();
-  }, [clearBuildState]);
+  const hasBuild = buildResponse !== null;
+  const selectedCount = selectedScanIds.size;
 
   return (
-    <div className="flex flex-col gap-6 p-4 lg:flex-row lg:p-6">
-      {/* Left column */}
-      <div className="flex w-full shrink-0 flex-col gap-4 lg:w-[400px]">
-        <PatientSelector selectedPatientId={patientId ?? selectedPatient?.patient_id} onPatientChange={handlePatientChange} />
+    <div className="flex flex-col gap-6 p-4 lg:p-6">
+      {/* Header */}
+      <div className="rounded-lg bg-white p-4 shadow-sm">
+        <h1 className="text-xl font-semibold text-black">Template Builder</h1>
+        <p className="mt-1 text-sm text-gray-500">
+          Enter a patient ID, select scans, then build a template with auto-placed keypoints.
+        </p>
 
-        <ScanSelector
-          patient={selectedPatient}
-          selectedScanIds={selectedScanIds}
-          onSelectedScanIdsChange={setSelectedScanIds}
-          previewScanId={previewScan?.scan_id ?? null}
-          onPreviewScanChange={handlePreviewScanChange}
-        />
+        <div className="mt-4 flex gap-2">
+          <input
+            type="text"
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleLoadPatient()}
+            placeholder="Patient ID"
+            className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm text-black placeholder-gray-400 focus:border-gray-500 focus:outline-none"
+          />
+          <button
+            onClick={handleLoadPatient}
+            disabled={!inputValue.trim()}
+            className="cursor-pointer rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Load Patient
+          </button>
+        </div>
 
-        {/* MatThermogramPreview placeholder */}
-        <div className="rounded-lg bg-white p-4 shadow-sm">
-          <h3 className="text-lg font-semibold text-black">Mat Thermogram</h3>
-          <div className="mt-2 flex h-[200px] items-center justify-center rounded bg-gray-50">
-            {previewScan ? (
-              <p className="text-sm text-gray-500">Preview for scan {previewScan.when_scan_completed.slice(0, 16).replace('T', ' ')}</p>
+        {patientLoading && <p className="mt-2 text-sm text-gray-400">Loading patient...</p>}
+        {patientError && <p className="mt-2 text-sm text-red-500">Patient not found.</p>}
+        {patient && (
+          <div className="mt-2 flex items-center gap-3 text-sm">
+            <span className="font-medium text-black">{patient.patient_designation || activePatientId?.slice(0, 12)}</span>
+            <span className="text-gray-400">{scans.length} scans available</span>
+          </div>
+        )}
+      </div>
+
+      {/* Main content */}
+      {scans.length > 0 && (
+        <div className="flex flex-col gap-6 lg:flex-row">
+          {/* Left: scan selection */}
+          <div className="w-full shrink-0 lg:w-[400px]">
+            <div className="rounded-lg bg-white p-4 shadow-sm">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-black">Select Scans</h3>
+                <div className="flex gap-2">
+                  <button onClick={selectAllScans} className="cursor-pointer text-xs text-blue-600 hover:underline">
+                    All
+                  </button>
+                  <button onClick={clearSelection} className="cursor-pointer text-xs text-gray-400 hover:underline">
+                    Clear
+                  </button>
+                  {selectedCount > 0 && <span className="text-xs text-gray-500">{selectedCount} selected</span>}
+                </div>
+              </div>
+              <p className="mt-1 text-xs text-gray-400">Select the scans to use for template building. More scans = better template.</p>
+
+              {scansLoading ? (
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <div key={i} className="aspect-[205/140] animate-pulse rounded-lg bg-gray-200" />
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  {scans.map((scan) => (
+                    <ScanThumbnail key={scan.scan_id} scan={scan} isSelected={selectedScanIds.has(scan.scan_id)} onToggle={() => toggleScan(scan.scan_id)} />
+                  ))}
+                </div>
+              )}
+
+              {/* Build button */}
+              <div className="mt-4">
+                <button
+                  onClick={handleBuild}
+                  disabled={selectedCount === 0 || isBuilding}
+                  className="w-full cursor-pointer rounded-md bg-gray-900 px-4 py-2.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isBuilding ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                      Building template...
+                    </span>
+                  ) : (
+                    `Build Template from ${selectedCount} scan${selectedCount !== 1 ? 's' : ''}`
+                  )}
+                </button>
+                {selectedCount > 0 && selectedCount < 4 && (
+                  <p className="mt-1 text-center text-xs text-amber-500">Recommend at least 4 scans for a reliable template</p>
+                )}
+                {buildError && <p className="mt-2 text-sm text-red-500">{buildError}</p>}
+              </div>
+            </div>
+          </div>
+
+          {/* Right: build results */}
+          <div className="flex flex-1 flex-col gap-4">
+            {hasBuild && buildResponse ? (
+              <>
+                {/* Template visualization with keypoints */}
+                <div className="rounded-lg bg-white p-4 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-semibold text-black">Built Template</h3>
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className="text-gray-500">{buildResponse.foot_count === 'pair' ? 'Bilateral' : 'Single foot'}</span>
+                      <span className="text-gray-400">|</span>
+                      <span className="text-gray-500">Quality: {(buildResponse.quality_score * 100).toFixed(0)}%</span>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex gap-4">
+                    {/* Right foot (left side of screen — anatomical convention) */}
+                    {buildResponse.right_template && (
+                      <div className="flex-1">
+                        <p className="mb-1 text-center text-xs font-medium text-gray-500">Right Foot</p>
+                        <div className="rounded bg-gray-900 p-2">
+                          <KeypointOverlayCanvas
+                            thermogramData={buildResponse.right_template}
+                            keypoints={buildKeypoints.map((kp) => ({
+                              ...kp,
+                              // For per-foot display, only show that side's keypoints
+                              left: undefined,
+                              leftConfidence: null
+                            }))}
+                          />
+                        </div>
+                      </div>
+                    )}
+                    {/* Left foot (right side of screen) */}
+                    {buildResponse.left_template && (
+                      <div className="flex-1">
+                        <p className="mb-1 text-center text-xs font-medium text-gray-500">Left Foot</p>
+                        <div className="rounded bg-gray-900 p-2">
+                          <KeypointOverlayCanvas
+                            thermogramData={buildResponse.left_template}
+                            keypoints={buildKeypoints.map((kp) => ({
+                              ...kp,
+                              right: undefined,
+                              rightConfidence: null
+                            }))}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <div className="mt-3">
+                    <KeypointLegend />
+                  </div>
+                </div>
+
+                {/* Keypoint details table */}
+                <div className="rounded-lg bg-white p-4 shadow-sm">
+                  <h3 className="text-sm font-semibold text-black">Auto-Placed Keypoints</h3>
+                  <div className="mt-2 overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="border-b text-gray-500">
+                          <th className="pb-2 pr-4">Keypoint</th>
+                          {buildResponse.left_template && <th className="pb-2 pr-4">Left (x, y)</th>}
+                          {buildResponse.left_template && <th className="pb-2 pr-4">L Conf</th>}
+                          {buildResponse.right_template && <th className="pb-2 pr-4">Right (x, y)</th>}
+                          {buildResponse.right_template && <th className="pb-2">R Conf</th>}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {buildKeypoints.map((kp) => {
+                          const fmtConf = (c: number | null | undefined) => {
+                            if (c == null) return <span className="text-gray-300">—</span>;
+                            const color = c >= 0.7 ? 'text-green-600' : c >= 0.4 ? 'text-amber-600' : 'text-red-500';
+                            return <span className={color}>{Math.round(c * 100)}%</span>;
+                          };
+                          return (
+                            <tr key={kp.name} className="border-b border-gray-50">
+                              <td className="py-1.5 pr-4 font-medium text-gray-700">{kp.name}</td>
+                              {buildResponse.left_template && (
+                                <td className="py-1.5 pr-4 font-mono text-gray-600">
+                                  {kp.left ? `(${kp.left.x.toFixed(3)}, ${kp.left.y.toFixed(3)})` : <span className="text-gray-300">null</span>}
+                                </td>
+                              )}
+                              {buildResponse.left_template && <td className="py-1.5 pr-4">{fmtConf(kp.leftConfidence)}</td>}
+                              {buildResponse.right_template && (
+                                <td className="py-1.5 pr-4 font-mono text-gray-600">
+                                  {kp.right ? `(${kp.right.x.toFixed(3)}, ${kp.right.y.toFixed(3)})` : <span className="text-gray-300">null</span>}
+                                </td>
+                              )}
+                              {buildResponse.right_template && <td className="py-1.5">{fmtConf(kp.rightConfidence)}</td>}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Actions placeholder */}
+                <div className="rounded-lg bg-white p-4 shadow-sm">
+                  <h3 className="text-sm font-semibold text-black">Actions</h3>
+                  <p className="mt-1 text-xs text-gray-400">Review the auto-placed keypoints above. Approve to save, or adjust manually.</p>
+                  <div className="mt-3 flex gap-2">
+                    <button disabled className="cursor-not-allowed rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white opacity-50">
+                      Approve &amp; Save Template
+                    </button>
+                    <button disabled className="cursor-not-allowed rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-600 opacity-50">
+                      Adjust Keypoints Manually
+                    </button>
+                  </div>
+                  <p className="mt-2 text-xs text-gray-300">Save actions will be connected to the PADS events API.</p>
+                </div>
+              </>
             ) : (
-              <p className="text-sm text-gray-400">Click a scan to preview its thermogram</p>
+              <div className="flex h-[500px] items-center justify-center rounded-lg bg-white shadow-sm">
+                <div className="text-center">
+                  <p className="text-sm text-gray-400">
+                    {scans.length > 0 ? 'Select scans and click Build to generate a template' : 'Loading scans...'}
+                  </p>
+                  {scans.length > 0 && <p className="mt-1 text-xs text-gray-300">The build server will return a template with auto-placed keypoints</p>}
+                </div>
+              </div>
             )}
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Right column */}
-      <div className="flex flex-1 flex-col gap-4">
-        <BuildControls
-          onAutoBuild={handleAutoBuild}
-          onManualBuild={handleManualBuild}
-          isBuilding={buildMutation.isPending}
-          canAutoBuild={!!selectedPatient && !buildMutation.isPending}
-          canManualBuild={selectedScanIds.size >= 4 && !buildMutation.isPending}
-          checkedScanCount={selectedScanIds.size}
-        />
-
-        {/* Foot Templates */}
-        <div className="rounded-lg bg-white p-4 shadow-sm">
-          <h3 className="text-lg font-semibold text-black">Foot Templates</h3>
-          {hasTemplate ? (
-            <div className="mt-2 flex gap-4">
-              {/* Right foot on left side, left foot on right side (anatomical convention) */}
-              <TemplateCanvas
-                templateData={rightTemplate}
-                side="right"
-                enabled={rightTemplate !== null}
-                activeKeypoint={activeKeypoint}
-                keypoints={keypoints}
-                keypointNames={KEYPOINT_NAMES}
-                threshold={rightThreshold}
-                onKeypointPlace={handleKeypointPlace}
-              />
-              <TemplateCanvas
-                templateData={leftTemplate}
-                side="left"
-                enabled={leftTemplate !== null}
-                activeKeypoint={activeKeypoint}
-                keypoints={keypoints}
-                keypointNames={KEYPOINT_NAMES}
-                threshold={leftThreshold}
-                onKeypointPlace={handleKeypointPlace}
-              />
-            </div>
-          ) : (
-            <div className="mt-2 flex h-[300px] items-center justify-center rounded bg-gray-50">
-              <p className="text-sm text-gray-400">Build a template to see foot visualizations</p>
-            </div>
-          )}
+      {!activePatientId && (
+        <div className="rounded-lg bg-white p-8 text-center shadow-sm">
+          <p className="text-gray-400">Enter a patient ID above to get started.</p>
+          <p className="mt-1 text-xs text-gray-300">Try: fa4a56521d93238218b29d027b4d32c6 (TT-0002)</p>
         </div>
-
-        {/* Foot side controls — single-foot auto templates only */}
-        {showFootSideControls && <FootSideControls footSide={footSide!} onChangeFootSide={handleChangeFootSide} onRotate={handleRotate} />}
-
-        {/* Threshold sliders — manual mode only */}
-        {showThresholdSliders && (
-          <ThresholdSliders
-            leftThreshold={leftThreshold}
-            rightThreshold={rightThreshold}
-            onLeftChange={setLeftThreshold}
-            onRightChange={setRightThreshold}
-            showLeft={leftTemplate !== null}
-            showRight={rightTemplate !== null}
-          />
-        )}
-
-        {/* Keypoints — only shown after a template is built */}
-        {hasTemplate && (
-          <KeypointSelector activeKeypoint={activeKeypoint} keypoints={keypoints} onActiveKeypointChange={setActiveKeypoint} footConfig={footConfig} />
-        )}
-
-        {/* Save Template */}
-        <SaveTemplateButton
-          patientId={selectedPatient?.patient_id}
-          leftTemplate={leftTemplate}
-          rightTemplate={rightTemplate}
-          leftThreshold={leftThreshold}
-          rightThreshold={rightThreshold}
-          keypoints={keypoints}
-          footConfig={footConfig}
-          earliestScanId={buildResult?.earliest_scan_id}
-          dateCreated={buildResult?.date_created}
-          hasTemplate={hasTemplate}
-          onSaveSuccess={handleSaveSuccess}
-        />
-      </div>
+      )}
     </div>
   );
 }

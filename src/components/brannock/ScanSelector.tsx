@@ -27,16 +27,19 @@ interface ScanSelectorProps {
   onSelectedScanIdsChange: (ids: Set<string>) => void;
   previewScanId: string | null;
   onPreviewScanChange: (scan: BrannockScan | null) => void;
+  /** Override the default scan fetch function (e.g. to bypass LOCAL mock guard). */
+  fetchScansFn?: (scansUrl: string) => Promise<Array<BrannockScan>>;
 }
 
-export const ScanSelector: FC<ScanSelectorProps> = ({ patient, selectedScanIds, onSelectedScanIdsChange, previewScanId, onPreviewScanChange }) => {
+export const ScanSelector: FC<ScanSelectorProps> = ({ patient, selectedScanIds, onSelectedScanIdsChange, previewScanId, onPreviewScanChange, fetchScansFn }) => {
+  const fetcher = fetchScansFn ?? getBrannockScans;
   const {
     data: scans = [],
     isLoading,
     isError
   } = useQuery({
     queryKey: ['brannock-scans', patient?.patient_id],
-    queryFn: () => getBrannockScans(patient!.scans_url),
+    queryFn: () => fetcher(patient!.scans_url),
     enabled: !!patient
   });
 

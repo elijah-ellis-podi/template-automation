@@ -14,6 +14,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as AutoKeypointsRouteImport } from './routes/auto-keypoints'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ReviewReviewIdRouteImport } from './routes/review.$reviewId'
 
 const ManualBuildRoute = ManualBuildRouteImport.update({
   id: '/manual-build',
@@ -40,6 +41,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ReviewReviewIdRoute = ReviewReviewIdRouteImport.update({
+  id: '/review/$reviewId',
+  path: '/review/$reviewId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -47,6 +53,7 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof DashboardRoute
   '/login': typeof LoginRoute
   '/manual-build': typeof ManualBuildRoute
+  '/review/$reviewId': typeof ReviewReviewIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -54,6 +61,7 @@ export interface FileRoutesByTo {
   '/dashboard': typeof DashboardRoute
   '/login': typeof LoginRoute
   '/manual-build': typeof ManualBuildRoute
+  '/review/$reviewId': typeof ReviewReviewIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -62,12 +70,25 @@ export interface FileRoutesById {
   '/dashboard': typeof DashboardRoute
   '/login': typeof LoginRoute
   '/manual-build': typeof ManualBuildRoute
+  '/review/$reviewId': typeof ReviewReviewIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auto-keypoints' | '/dashboard' | '/login' | '/manual-build'
+  fullPaths:
+    | '/'
+    | '/auto-keypoints'
+    | '/dashboard'
+    | '/login'
+    | '/manual-build'
+    | '/review/$reviewId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auto-keypoints' | '/dashboard' | '/login' | '/manual-build'
+  to:
+    | '/'
+    | '/auto-keypoints'
+    | '/dashboard'
+    | '/login'
+    | '/manual-build'
+    | '/review/$reviewId'
   id:
     | '__root__'
     | '/'
@@ -75,6 +96,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/login'
     | '/manual-build'
+    | '/review/$reviewId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -83,6 +105,7 @@ export interface RootRouteChildren {
   DashboardRoute: typeof DashboardRoute
   LoginRoute: typeof LoginRoute
   ManualBuildRoute: typeof ManualBuildRoute
+  ReviewReviewIdRoute: typeof ReviewReviewIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -122,6 +145,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/review/$reviewId': {
+      id: '/review/$reviewId'
+      path: '/review/$reviewId'
+      fullPath: '/review/$reviewId'
+      preLoaderRoute: typeof ReviewReviewIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -131,6 +161,7 @@ const rootRouteChildren: RootRouteChildren = {
   DashboardRoute: DashboardRoute,
   LoginRoute: LoginRoute,
   ManualBuildRoute: ManualBuildRoute,
+  ReviewReviewIdRoute: ReviewReviewIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
