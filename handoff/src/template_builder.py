@@ -143,15 +143,19 @@ def build_patient_template_and_keypoints(
     single_foot_side: Optional[str] = None
 
     if len(raw_templates) == 2:
-        raw_left, raw_right = raw_templates
+        # build_templates() returns raw orientation. The legacy brannock desktop
+        # applies numpy.fliplr() before saving/displaying, so the PADS ground-truth
+        # keypoints are in flipped coordinates. We must flip here to match.
+        raw_left = np.fliplr(raw_templates[0])
+        raw_right = np.fliplr(raw_templates[1])
         sides = [('left', raw_left), ('right', raw_right)]
-        logger.info('build step 2: bilateral (2 templates)')
+        logger.info('build step 2: bilateral (2 templates, fliplr applied)')
     elif len(raw_templates) == 1:
-        raw_single = raw_templates[0]
+        raw_single = np.fliplr(raw_templates[0])
         try:
             is_left = is_left_foot(raw_single)
             side = 'left' if is_left == 1 else 'right'
-            logger.info(f'build step 2: single foot, is_left_foot() returned {is_left} → {side}')
+            logger.info(f'build step 2: single foot, is_left_foot() returned {is_left} → {side} (fliplr applied)')
         except Exception as e:
             side = 'right'
             logger.warning(f'build step 2: is_left_foot() failed ({e}), defaulting to right')

@@ -1,7 +1,7 @@
 """
 Deterministic anatomical validator for foot keypoints.
 
-Checks 6 hard rules derived from podiatry anatomy. No API call, no ML — runs in
+Checks 7 hard rules derived from podiatry anatomy. No API call, no ML — runs in
 microseconds. Used as the first gating step before Claude review.
 
 Rules (y=0 is toes/top, y=1 is heel/bottom; x=0 is left edge, x=1 is right edge):
@@ -12,13 +12,16 @@ Rules (y=0 is toes/top, y=1 is heel/bottom; x=0 is left edge, x=1 is right edge)
      Left  foot: Met1.x < Met3.x < Met5.x
   5. Arch is on the medial edge (right: high x, left: low x)
   6. All coords within [0.02, 0.98]
+  7. Forefoot taper: mask width at hallux level / width at met level < 0.92
+     (wide forefoot = flat distal edge → possible toe amputation or mis-fit)
+     Requires template to be passed; skipped (score=1.0) when template=None.
 
 Score per rule: 1.0 if satisfied, partial credit on gradient violations.
 Overall score: mean of per-rule scores.  score ≥ 0.9 → AUTO_ACCEPT.
 """
 
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Optional
 import numpy as np
 import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
@@ -56,15 +59,22 @@ def _soft_check(condition_value: float, margin: float = 0.02) -> float:
     return 1.0 + condition_value / margin   # linear ramp 1→0 over [-margin, 0]
 
 
-def validate(coords: np.ndarray, side: str) -> ValidationResult:
+def validate(
+    coords: np.ndarray,
+    side: str,
+    template: Optional[np.ndarray] = None,
+) -> ValidationResult:
     """
     Validate a (6, 2) keypoint array.
 
     Parameters
     ----------
-    coords : (6, 2) float array, normalised (x, y), KEYPOINT_NAMES order.
-             NaN values are tolerated — rules involving NaN return 0.5 (uncertain).
-    side   : 'left' or 'right'
+    coords   : (6, 2) float array, normalised (x, y), KEYPOINT_NAMES order.
+               NaN values are tolerated — rules involving NaN return 0.5 (uncertain).
+    side     : 'left' or 'right'
+    template : optional 2D float foot-mask array (same as used for prediction).
+               Required for Rule 7 (forefoot taper check). When None, Rule 7 is
+               skipped (returns 1.0 so it doesn't penalise existing callers).
 
     Returns
     -------
@@ -197,6 +207,28 @@ def validate(coords: np.ndarray, side: str) -> ValidationResult:
         if sc < 0.9:
             violations.append(f'{name} out of bounds: x={x_v:.3f}, y={y_v:.3f}')
     rule_scores.append(float(np.mean(in_bounds_scores)))
+
+    # ── Rule 7: Forefoot taper (requires template) ───────────────────────────
+    # Normal feet narrow toward toes: width at hallux level / width at met level < 0.92
+    # A ratio ≥ 0.92 means the forefoot is wide/flat at the distal end,
+    # suggesting toe amputation or a severe model mis-fit.
+    _TAPER_THRESHOLD = 0.90   # normal feet taper: max observed = 0.889; amputated min = 0.909
+    if template is not None and not np.isnan(hy) and not any(np.isnan(v) for v in [m1y, m3y, m5y]):
+        H, W = template.shape
+        mask = template > 0.1
+        met_y_mean = float(np.mean([m1y, m3y, m5y]))
+        hal_row = int(np.clip(round(hy * H), 0, H - 1))
+        met_row = int(np.clip(round(met_y_mean * H), 0, H - 1))
+        hal_w = float(mask[hal_row, :].sum())
+        met_w = float(mask[met_row, :].sum())
+        taper = hal_w / (met_w + 1e-9)
+        # Hard fail: amputated feet are not borderline — either the forefoot tapers or it doesn't
+        sc7 = 1.0 if taper < _TAPER_THRESHOLD else 0.0
+        _record(sc7, [HALLUX, MET1, MET3, MET5],
+                f'Unusual forefoot shape — forefoot does not taper toward toes '
+                f'(taper_ratio={taper:.3f} ≥ {_TAPER_THRESHOLD}; possible toe amputation)')
+    else:
+        _record(1.0, [])   # skip — no penalty when template not provided
 
     # ── Aggregate ─────────────────────────────────────────────────────────────
     overall_score = float(np.mean(rule_scores)) if rule_scores else 0.0

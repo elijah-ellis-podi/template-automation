@@ -23,10 +23,21 @@ const KEYPOINT_COLORS: Record<string, string> = {
 interface KeypointOverlayCanvasProps {
   thermogramData: Array<Array<number>>;
   keypoints: Array<KeypointResult>;
+  /** Ground truth keypoints — rendered as O markers for comparison */
+  groundTruth?: Array<KeypointResult>;
   className?: string;
+  /** 'thermogram' = copper heatmap (default), 'template' = binary foot mask */
+  renderMode?: 'thermogram' | 'template';
+  /**
+   * How to map normalized keypoint coords to canvas pixels.
+   * 'bilateral' (default): image shows both feet side-by-side. Left foot coords
+   *   map to the right half, right foot coords map to the left half.
+   * 'single': image shows one foot. Coords map directly (x*w, y*h).
+   */
+  coordMode?: 'bilateral' | 'single';
 }
 
-// ── Copper palette ──
+// ── Copper palette (for raw thermograms) ──
 function temperatureToRgba(value: number, min: number, max: number): [number, number, number, number] {
   if (value <= 0) return [0, 0, 0, 0];
   const t = max > min ? (value - min) / (max - min) : 0;
@@ -36,7 +47,21 @@ function temperatureToRgba(value: number, min: number, max: number): [number, nu
   return [r, g, b, 255];
 }
 
-export const KeypointOverlayCanvas: FC<KeypointOverlayCanvasProps> = ({ thermogramData, keypoints, className }) => {
+// ── Template palette (for boolean/smooth foot masks) ──
+function templateToRgba(value: number, max: number): [number, number, number, number] {
+  if (value <= 0 || max <= 0) return [0, 0, 0, 255];
+  const t = Math.min(1, value / max);
+  if (t < 0.15) return [15, 15, 20, 255];
+  const intensity = 0.6 + t * 0.4;
+  return [
+    Math.round(200 * intensity),
+    Math.round(210 * intensity),
+    Math.round(230 * intensity),
+    255
+  ];
+}
+
+export const KeypointOverlayCanvas: FC<KeypointOverlayCanvasProps> = ({ thermogramData, keypoints, groundTruth, className, renderMode = 'thermogram', coordMode = 'bilateral' }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -78,7 +103,9 @@ export const KeypointOverlayCanvas: FC<KeypointOverlayCanvasProps> = ({ thermogr
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const idx = (r * cols + c) * 4;
-        const [red, green, blue, alpha] = temperatureToRgba(thermogramData[r][c], min, max);
+        const [red, green, blue, alpha] = renderMode === 'template'
+          ? templateToRgba(thermogramData[r][c], max)
+          : temperatureToRgba(thermogramData[r][c], min, max);
         imageData.data[idx] = red;
         imageData.data[idx + 1] = green;
         imageData.data[idx + 2] = blue;
@@ -94,74 +121,93 @@ export const KeypointOverlayCanvas: FC<KeypointOverlayCanvasProps> = ({ thermogr
     const w = cols * scale;
     const h = rows * scale;
 
-    for (const kp of keypoints) {
-      const color = KEYPOINT_COLORS[kp.name] || '#ffffff';
-
-      if (kp.left) {
-        const x = (0.5 + kp.left.x * 0.5) * w;
-        const y = kp.left.y * h;
-        drawMarker(ctx, x, y, color, scale, kp.leftConfidence ?? null);
+    // Coordinate mapping: bilateral (full mat, two feet) vs single (one foot per canvas)
+    const mapCoord = (coord: { x: number; y: number }, side: 'left' | 'right'): { px: number; py: number } => {
+      if (coordMode === 'single') {
+        // Single foot: normalized coords map directly to canvas
+        return { px: coord.x * w, py: coord.y * h };
       }
-      if (kp.right) {
-        const x = kp.right.x * 0.5 * w;
-        const y = kp.right.y * h;
-        drawMarker(ctx, x, y, color, scale, kp.rightConfidence ?? null);
+      // Bilateral: left foot in right half, right foot in left half
+      if (side === 'left') {
+        return { px: (0.5 + coord.x * 0.5) * w, py: coord.y * h };
+      }
+      return { px: coord.x * 0.5 * w, py: coord.y * h };
+    };
+
+    // Ground truth first (O markers, behind model markers)
+    if (groundTruth) {
+      for (const kp of groundTruth) {
+        const color = KEYPOINT_COLORS[kp.name] || '#ffffff';
+        if (kp.left) {
+          const { px, py } = mapCoord(kp.left, 'left');
+          drawCircleMarker(ctx, px, py, color, scale);
+        }
+        if (kp.right) {
+          const { px, py } = mapCoord(kp.right, 'right');
+          drawCircleMarker(ctx, px, py, color, scale);
+        }
       }
     }
-  }, [thermogramData, keypoints]);
+
+    // Model predictions (X markers, on top)
+    for (const kp of keypoints) {
+      const color = KEYPOINT_COLORS[kp.name] || '#ffffff';
+      if (kp.left) {
+        const { px, py } = mapCoord(kp.left, 'left');
+        drawXMarker(ctx, px, py, color, scale);
+      }
+      if (kp.right) {
+        const { px, py } = mapCoord(kp.right, 'right');
+        drawXMarker(ctx, px, py, color, scale);
+      }
+    }
+  }, [thermogramData, keypoints, groundTruth, renderMode]);
 
   return <canvas ref={canvasRef} className={cn('h-auto w-full rounded', className)} />;
 };
 
-function drawMarker(ctx: CanvasRenderingContext2D, x: number, y: number, color: string, scale: number, confidence: number | null) {
-  const baseRadius = 2.5 * scale;
+// ── X marker (model predictions) ──
+function drawXMarker(ctx: CanvasRenderingContext2D, x: number, y: number, color: string, scale: number) {
+  const size = 2 * scale;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.2 * scale;
 
-  // Confidence ring: full circle at 1.0, thinner/dashed at low confidence
-  const hasConf = confidence !== null && confidence !== undefined;
-  const conf = hasConf ? confidence : 1.0;
-  const ringAlpha = 0.4 + conf * 0.6; // 0.4 at conf=0, 1.0 at conf=1
-
-  // Outer ring
+  // Draw X
   ctx.beginPath();
-  ctx.arc(x, y, baseRadius, 0, Math.PI * 2);
-  ctx.strokeStyle = `rgba(255, 255, 255, ${ringAlpha})`;
-  ctx.lineWidth = 1.5 * scale;
+  ctx.moveTo(x - size, y - size);
+  ctx.lineTo(x + size, y + size);
+  ctx.moveTo(x + size, y - size);
+  ctx.lineTo(x - size, y + size);
   ctx.stroke();
+}
 
-  // Inner filled circle — opacity scales with confidence
+// ── O marker (ground truth) ──
+function drawCircleMarker(ctx: CanvasRenderingContext2D, x: number, y: number, color: string, scale: number) {
+  const radius = 2 * scale;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.2 * scale;
+
+  // Draw O
   ctx.beginPath();
-  ctx.arc(x, y, baseRadius - 0.75 * scale, 0, Math.PI * 2);
-  ctx.fillStyle = color;
-  ctx.globalAlpha = 0.5 + conf * 0.5; // 0.5 at conf=0, 1.0 at conf=1
-  ctx.fill();
-  ctx.globalAlpha = 1.0;
-
-  // Confidence text label (shown if confidence is present)
-  if (hasConf) {
-    const label = `${Math.round(conf * 100)}`;
-    ctx.font = `${Math.round(4.5 * scale)}px sans-serif`;
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-
-    const textX = x + baseRadius + 1.5 * scale;
-    const textY = y;
-
-    // Text shadow for readability
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-    ctx.fillText(label, textX + 0.5, textY + 0.5);
-    ctx.fillStyle = `rgba(255, 255, 255, ${ringAlpha})`;
-    ctx.fillText(label, textX, textY);
-  }
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.stroke();
 }
 
 // ── Legend component ──
-export const KeypointLegend: FC = () => (
-  <div className="flex flex-wrap gap-x-4 gap-y-1">
+export const KeypointLegend: FC<{ showGroundTruth?: boolean }> = ({ showGroundTruth }) => (
+  <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
     {KEYPOINT_NAMES.map((name) => (
       <div key={name} className="flex items-center gap-1.5 text-xs text-gray-600">
         <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: KEYPOINT_COLORS[name] }} />
         {name}
       </div>
     ))}
+    {showGroundTruth && (
+      <>
+        <span className="text-xs text-gray-300">|</span>
+        <span className="text-xs text-gray-500">X = model</span>
+        <span className="text-xs text-gray-500">O = ground truth</span>
+      </>
+    )}
   </div>
 );

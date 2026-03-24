@@ -396,14 +396,14 @@ async def build_template_endpoint(req: BuildTemplateRequest):
 
     if result.left_keypoints is not None:
         try:
-            left_val = anatomical_validate(result.left_keypoints, 'left')
+            left_val = anatomical_validate(result.left_keypoints, 'left', template=result.left_template)
             quality_scores.append(left_val.overall_score)
         except Exception:
             pass
 
     if result.right_keypoints is not None:
         try:
-            right_val = anatomical_validate(result.right_keypoints, 'right')
+            right_val = anatomical_validate(result.right_keypoints, 'right', template=result.right_template)
             quality_scores.append(right_val.overall_score)
         except Exception:
             pass

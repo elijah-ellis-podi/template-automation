@@ -36,7 +36,25 @@ localStorage.setItem('__podi', '<paste the token here>')
 
 ---
 
-## 2. Keypoint detection server (Python)
+## 2. Template Builder server (Python) — used by the Template Builder page
+
+```bash
+cd template-automation/handoff
+
+python3 -m venv .venv
+source .venv/bin/activate
+
+pip install -r ../keypoint_automation/requirements.txt
+pip install fastapi uvicorn
+
+uvicorn server:app --port 8788 --reload
+```
+
+The server starts at `http://localhost:8788`. The `--reload` flag watches for file changes and auto-restarts.
+
+This server uses the handoff pipeline (brannock template builder + notebook keypoint model + anatomical validator). No Anthropic API key needed.
+
+## 2b. Auto Keypoint Demo server (optional — only for the Auto Keypoint Demo tab)
 
 ```bash
 cd template-automation/keypoint_automation
@@ -52,7 +70,7 @@ export ANTHROPIC_API_KEY=sk-ant-...your-key-here...
 uvicorn server:app --port 8787 --reload
 ```
 
-The server starts at `http://localhost:8787`. The `--reload` flag watches for file changes and auto-restarts — no manual restart needed when editing Python code.
+This server runs on port 8787 and is only needed for the Auto Keypoint Demo page (Claude Vision integration). The Template Builder page uses port 8788.
 
 Verify it's running:
 
@@ -85,8 +103,9 @@ If you don't have an Anthropic API key, the server still starts. The geometric m
 
 ## Ports summary
 
-| Service | Port | URL |
-|---|---|---|
-| Vite dev server (frontend) | 5173 | `http://localhost:5173` |
-| Keypoint detection server (Python) | 8787 | `http://localhost:8787` |
-| PADS API (dev env) | 443 | `https://tmplt.dev.podimetrics.com/api/v1` |
+| Service | Port | URL | Used by |
+|---|---|---|---|
+| Vite dev server (frontend) | 5173 | `http://localhost:5173` | All pages |
+| Template Builder server | 8788 | `http://localhost:8788` | Template Builder page |
+| Auto Keypoint Demo server | 8787 | `http://localhost:8787` | Auto Keypoint Demo page (optional) |
+| PADS API (dev env) | 443 | `https://tmplt.dev.podimetrics.com/api/v1` | Patient/scan data |
