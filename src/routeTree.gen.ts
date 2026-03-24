@@ -13,6 +13,7 @@ import { Route as ManualBuildRouteImport } from './routes/manual-build'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as AutoKeypointsRouteImport } from './routes/auto-keypoints'
+import { Route as ApprovalLogRouteImport } from './routes/approval-log'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ReviewReviewIdRouteImport } from './routes/review.$reviewId'
 
@@ -36,6 +37,11 @@ const AutoKeypointsRoute = AutoKeypointsRouteImport.update({
   path: '/auto-keypoints',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApprovalLogRoute = ApprovalLogRouteImport.update({
+  id: '/approval-log',
+  path: '/approval-log',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -49,6 +55,7 @@ const ReviewReviewIdRoute = ReviewReviewIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/approval-log': typeof ApprovalLogRoute
   '/auto-keypoints': typeof AutoKeypointsRoute
   '/dashboard': typeof DashboardRoute
   '/login': typeof LoginRoute
@@ -57,6 +64,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/approval-log': typeof ApprovalLogRoute
   '/auto-keypoints': typeof AutoKeypointsRoute
   '/dashboard': typeof DashboardRoute
   '/login': typeof LoginRoute
@@ -66,6 +74,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/approval-log': typeof ApprovalLogRoute
   '/auto-keypoints': typeof AutoKeypointsRoute
   '/dashboard': typeof DashboardRoute
   '/login': typeof LoginRoute
@@ -76,6 +85,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/approval-log'
     | '/auto-keypoints'
     | '/dashboard'
     | '/login'
@@ -84,6 +94,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/approval-log'
     | '/auto-keypoints'
     | '/dashboard'
     | '/login'
@@ -92,6 +103,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/approval-log'
     | '/auto-keypoints'
     | '/dashboard'
     | '/login'
@@ -101,6 +113,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ApprovalLogRoute: typeof ApprovalLogRoute
   AutoKeypointsRoute: typeof AutoKeypointsRoute
   DashboardRoute: typeof DashboardRoute
   LoginRoute: typeof LoginRoute
@@ -138,6 +151,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AutoKeypointsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/approval-log': {
+      id: '/approval-log'
+      path: '/approval-log'
+      fullPath: '/approval-log'
+      preLoaderRoute: typeof ApprovalLogRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -157,6 +177,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ApprovalLogRoute: ApprovalLogRoute,
   AutoKeypointsRoute: AutoKeypointsRoute,
   DashboardRoute: DashboardRoute,
   LoginRoute: LoginRoute,

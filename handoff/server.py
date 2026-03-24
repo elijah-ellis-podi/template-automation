@@ -367,3 +367,167 @@ async def get_patient_scans(patient_id: str, max_scans: int = 15):
 
     log.info(f'  /patients/{patient_id}/scans: {len(scans)} scans loaded')
     return {'scans': scans}
+
+
+# ══════════════════════════════════════════════════════════════
+# Review Queue — builds templates for all patients, caches results
+# ══════════════════════════════════════════════════════════════
+
+_review_cache: dict | None = None
+
+
+def _load_thermograms(patient_id: str, max_scans: int = 15):
+    """Load raw thermograms from filesystem."""
+    scans_dir = PATIENT_DATA_DIR / patient_id / 'scans'
+    if not scans_dir.exists():
+        return []
+    mat_files = sorted(scans_dir.glob('*_mat.json'), reverse=True)
+    thermos = []
+    for mf in mat_files[:max_scans]:
+        try:
+            with open(mf) as f:
+                t = json.load(f).get('thermogram')
+            if t:
+                thermos.append(np.array(t, dtype=np.float32))
+        except Exception:
+            continue
+    return thermos
+
+
+def _build_review_queue():
+    """Build templates for all patients and return review items."""
+    global _review_cache
+    if _review_cache is not None:
+        return _review_cache
+
+    log.info('=== Building review queue for all patients ===')
+    items = []
+
+    for d in sorted(PATIENT_DATA_DIR.iterdir()):
+        if not d.is_dir() or d.name.startswith('.'):
+            continue
+        patient_id = d.name
+
+        # Load patient info
+        patient_json = d / 'patient.json'
+        designation = patient_id[:12]
+        if patient_json.exists():
+            with open(patient_json) as f:
+                p = json.load(f)
+            designation = p.get('patient_designation') or p.get('last_name', designation)
+
+        # Load thermograms
+        thermos = _load_thermograms(patient_id)
+        if len(thermos) == 0:
+            log.info(f'  {designation}: no thermograms, skipping')
+            continue
+
+        log.info(f'  {designation}: {len(thermos)} scans, building...')
+
+        # Build template
+        try:
+            result = build_patient_template_and_keypoints(thermos, model='notebook')
+        except Exception as e:
+            log.warning(f'  {designation}: build failed: {e}')
+            continue
+
+        if result.left_template is None and result.right_template is None:
+            log.info(f'  {designation}: no template produced')
+            continue
+
+        # Validate each side
+        for side in ['left', 'right']:
+            template = getattr(result, f'{side}_template')
+            kp_coords = getattr(result, f'{side}_keypoints')
+            if template is None or kp_coords is None:
+                continue
+
+            try:
+                val = anatomical_validate(kp_coords, side, template=template)
+            except Exception:
+                val = None
+
+            score = val.overall_score if val else 0.5
+            violations = val.violations if val else []
+            tier = 'high' if score >= 0.9 else 'medium' if score >= 0.7 else 'low'
+
+            # Build keypoint list
+            kps = []
+            for i, name in enumerate(KEYPOINT_NAMES):
+                x, y = kp_coords[i]
+                conf = round(float(val.per_keypoint_scores[i]), 3) if val else None
+                if np.isnan(x) or np.isnan(y):
+                    kps.append({'name': name, 'x': None, 'y': None, 'confidence': conf})
+                else:
+                    kps.append({'name': name, 'x': round(float(x), 5), 'y': round(float(y), 5), 'confidence': conf})
+
+            items.append({
+                'id': f'{patient_id}_{side}',
+                'patient_id': patient_id,
+                'patient_designation': designation,
+                'side': side,
+                'confidence_tier': tier,
+                'overall_score': round(score, 3),
+                'violations': violations,
+                'n_scans_used': result.n_scans_used,
+                'keypoints': kps,
+                'template': template.tolist(),
+                'review_status': 'pending',
+            })
+
+            status = '✓' if tier == 'high' else '?' if tier == 'medium' else '✗'
+            log.info(f'  {designation} {side}: score={score:.2f} tier={tier} {status}')
+
+    # Sort: low first, then medium, then high
+    tier_order = {'low': 0, 'medium': 1, 'high': 2}
+    items.sort(key=lambda x: (tier_order.get(x['confidence_tier'], 9), x['patient_designation']))
+
+    summary = {
+        'total': len(items),
+        'low': sum(1 for i in items if i['confidence_tier'] == 'low'),
+        'medium': sum(1 for i in items if i['confidence_tier'] == 'medium'),
+        'high': sum(1 for i in items if i['confidence_tier'] == 'high'),
+    }
+
+    log.info(f'=== Review queue built: {summary} ===')
+    _review_cache = {'items': items, 'summary': summary}
+    return _review_cache
+
+
+@app.get('/review-queue')
+async def get_review_queue():
+    """Return the review queue with all patients processed."""
+    data = _build_review_queue()
+    # Return items without the large template arrays (for the list view)
+    items_slim = []
+    for item in data['items']:
+        slim = {k: v for k, v in item.items() if k != 'template'}
+        items_slim.append(slim)
+    return {'items': items_slim, 'summary': data['summary']}
+
+
+@app.get('/review-queue/{review_id}')
+async def get_review_item(review_id: str):
+    """Return a single review item with template + latest thermogram."""
+    data = _build_review_queue()
+    item = next((i for i in data['items'] if i['id'] == review_id), None)
+    if item is None:
+        raise HTTPException(404, f'Review item {review_id} not found')
+
+    # Load the latest thermogram for this patient
+    thermos = _load_thermograms(item['patient_id'], max_scans=1)
+    latest_thermogram = thermos[0].tolist() if thermos else None
+
+    return {
+        **item,
+        'latest_thermogram': latest_thermogram,
+    }
+
+
+@app.post('/review-queue/rebuild')
+async def rebuild_review_queue():
+    """Force rebuild the review queue cache."""
+    global _review_cache
+    _review_cache = None
+    data = _build_review_queue()
+    return {'message': 'Rebuilt', 'summary': data['summary']}
